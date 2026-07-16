@@ -1,0 +1,10 @@
+# i18n konfiguratsiyasi: uz (lotin, default) + ru — ARB birinchi kundan (PLAN.md §10).
+arb-dir: lib/l10n
+template-arb-file: app_uz.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+# Generatsiya .dart_tool sintetik paketiga emas, loyiha ichiga yoziladi —
+# eski va yangi Flutter SDK'larda bir xil import yo'li ishlashi uchun.
+synthetic-package: false
+output-dir: lib/l10n/generated
+nullable-getter: false

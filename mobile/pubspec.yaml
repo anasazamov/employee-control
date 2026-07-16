@@ -1,0 +1,58 @@
+# Employee Control — mobil mijoz ilovasi (Flutter, bitta ilova / ikki rejim).
+# Qarang: docs/PLAN.md §7 (aktivatsiya), §9 (check-in), §10 (mijoz ilovalari).
+name: employee_control
+description: Dala xodimlarini nazorat qilish — xodim va rahbar rejimlari.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management — Riverpod v2 (PLAN.md §10)
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Navigatsiya — 2 ta ShellRoute (xodim / rahbar)
+  go_router: ^14.8.1
+
+  # Tarmoq
+  dio: ^5.7.0
+
+  # Token va qurilma-kalit saqlash (Keystore / Secure Enclave)
+  flutter_secure_storage: ^9.2.2
+
+  # Lokal DB — oflayn GPS bufer (10k FIFO) va check-in navbati (PLAN.md §8, §9)
+  drift: ^2.20.2
+  sqlite3_flutter_libs: ^0.5.24
+  path_provider: ^2.1.4
+
+  # Xarita — o'z Martin tile-serveri, OSM vector tile (PLAN.md §11)
+  maplibre_gl: ^0.20.0
+
+  # Qurilmada yuz-detektsiya + liveness sifat-nazorati (PLAN.md §6)
+  google_mlkit_face_detection: ^0.11.0
+
+  # Geolokatsiya (bepul stack, PLAN.md §8)
+  geolocator: ^13.0.1
+
+  # i18n — flutter_localizations o'z intl versiyasini pin qiladi,
+  # shu sabab qat'iy emas, oraliq constraint.
+  intl: '>=0.19.0 <0.21.0'
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  build_runner: ^2.4.13
+  riverpod_generator: ^2.6.1
+  drift_dev: ^2.20.2
+  flutter_lints: ^5.0.0
+
+flutter:
+  generate: true
+  uses-material-design: true
