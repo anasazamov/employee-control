@@ -10,6 +10,7 @@ from app.modules.checkins.router import router as checkins_router
 from app.modules.history.router import router as history_router
 from app.modules.org.departments import router as departments_router
 from app.modules.org.users import router as users_router
+from app.modules.platform.router import router as platform_router
 from app.modules.rbac.deps import TenantContext, get_context
 from app.modules.shifts.router import router as shifts_router
 from app.modules.sites.router import router as sites_router
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(shifts_router)
     app.include_router(assignments_router)
     app.include_router(history_router)
+    app.include_router(platform_router)
     app.include_router(ws_router)
 
     @app.get("/health")

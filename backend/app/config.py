@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     otp_ttl_seconds: int = 5 * 60
     invite_ttl_hours: int = 72
 
+    # Platforma-konsol kaliti (MVP — statik kalit; v2: platform_users + MFA).
+    # Prod'da .env orqali kuchli qiymatga almashtiriladi.
+    platform_api_key: str = "dev-platform-key-change-me"
+
 
 @lru_cache
 def get_settings() -> Settings:
