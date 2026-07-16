@@ -1,4 +1,4 @@
-import { ConfigProvider } from 'antd'
+import { App as AntdApp, ConfigProvider } from 'antd'
 import ruRU from 'antd/locale/ru_RU'
 import uzUZ from 'antd/locale/uz_UZ'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +11,10 @@ export function App() {
 
   return (
     <ConfigProvider locale={i18n.language === 'ru' ? ruRU : uzUZ}>
-      <RouterProvider router={router} />
+      {/* AntD App — message/notification kontekstini ta'minlaydi (App.useApp). */}
+      <AntdApp>
+        <RouterProvider router={router} />
+      </AntdApp>
     </ConfigProvider>
   )
 }
