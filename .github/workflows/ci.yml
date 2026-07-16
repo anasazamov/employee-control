@@ -32,10 +32,21 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+      minio:
+        # selfie-storage testlari uchun (presigned PUT end-to-end)
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
     env:
       EC_DATABASE_URL: postgresql+asyncpg://app_user:app_password@localhost:5432/employee_control
       EC_MIGRATIONS_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/employee_control
       EC_REDIS_URL: redis://localhost:6379/15
+      EC_MINIO_ENDPOINT: localhost:9000
+      EC_MINIO_ACCESS_KEY: minioadmin
+      EC_MINIO_SECRET_KEY: minioadmin
     defaults:
       run:
         working-directory: backend
