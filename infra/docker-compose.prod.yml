@@ -53,7 +53,9 @@ services:
     build: ../backend
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
     environment:
-      EC_DEBUG: "false"
+      # staging/test serverda DEBUG=true (OTP dev-kodi qaytadi, SMS'siz test uchun);
+      # prod'da .env'da DEBUG qo'yilmaydi → false
+      EC_DEBUG: ${DEBUG:-false}
       EC_DATABASE_URL: postgresql+asyncpg://app_user:app_password@db:5432/employee_control
       EC_MIGRATIONS_DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD}@db:5432/employee_control
       EC_REDIS_URL: redis://redis:6379/0
