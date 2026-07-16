@@ -8,6 +8,7 @@ from app.models import AuditLog, Checkin
 from app.modules.checkins import service
 from app.modules.checkins.schemas import CheckinIn, CheckinOut, CommentIn, ReviewIn
 from app.modules.rbac.deps import TenantContext, get_context, require_role, visible_user_ids
+from app.modules.tenancy.status import require_active_org
 
 router = APIRouter(prefix="/v1/checkins", tags=["checkins"])
 
@@ -28,7 +29,7 @@ def _audit(s, ctx: TenantContext, action: str, object_id: uuid.UUID, detail: dic
 
 
 @router.post("", response_model=CheckinOut)
-async def create(body: CheckinIn, ctx: TenantContext = Depends(get_context)):
+async def create(body: CheckinIn, ctx: TenantContext = Depends(require_active_org)):
     try:
         return await service.create_checkin(ctx, body)
     except service.SignatureError as e:

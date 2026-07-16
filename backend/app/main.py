@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.models import User
+from app.modules.assignments.router import router as assignments_router
 from app.modules.auth.router import router as auth_router
 from app.modules.checkins.router import router as checkins_router
 from app.modules.history.router import router as history_router
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(tracking_router)
     app.include_router(checkins_router)
     app.include_router(shifts_router)
+    app.include_router(assignments_router)
     app.include_router(history_router)
     app.include_router(ws_router)
 

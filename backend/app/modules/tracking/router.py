@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.modules.rbac.deps import TenantContext, get_context, visible_user_ids
+from app.modules.tenancy.status import require_active_org
 from app.modules.tracking import service
 from app.modules.tracking.schemas import LocationBatchIn, LocationBatchOut
 
@@ -8,7 +9,7 @@ router = APIRouter(prefix="/v1/locations", tags=["tracking"])
 
 
 @router.post("/batch", response_model=LocationBatchOut)
-async def ingest(body: LocationBatchIn, ctx: TenantContext = Depends(get_context)):
+async def ingest(body: LocationBatchIn, ctx: TenantContext = Depends(require_active_org)):
     """Mobil ilova GPS-nuqtalarni to'plab yuboradi (≤50 nuqta/60 s tavsiya, ≤200 qabul).
     point_uuid bo'yicha idempotent — offline-bufer qayta yuborsa dublikat yaralmaydi."""
     result = await service.ingest_batch(ctx, body.points)

@@ -14,10 +14,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models import Checkin, Device
+from app.models import Assignment, Checkin, Device
 from app.modules.checkins.schemas import CheckinIn
 from app.modules.checkins.signing import canonical_payload, verify_signature
 from app.modules.rbac.deps import TenantContext
@@ -185,6 +185,20 @@ async def create_checkin(ctx: TenantContext, body: CheckinIn) -> dict:
             existing = await s.get(Checkin, body.checkin_id)
             assert existing is not None
             return _to_dict(existing, duplicate=True)
+
+        # Mos ochiq topshiriqni avtomatik yakunlash: shu xodim + shu obyektning
+        # pending/in_progress topshiriqlari (reja §5). Dwell-shartli yakunlash v2'da
+        # (hozir geofence ichida check-in yetarli).
+        if site is not None:
+            await s.execute(
+                update(Assignment)
+                .where(
+                    Assignment.employee_id == ctx.user_id,
+                    Assignment.site_id == site.site_id,
+                    Assignment.status.in_(["pending", "in_progress"]),
+                )
+                .values(status="completed")
+            )
 
         row = await s.get(Checkin, body.checkin_id)
         out = _to_dict(row)
