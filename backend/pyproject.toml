@@ -20,6 +20,7 @@ dependencies = [
     "cryptography>=42.0",
     "python-multipart>=0.0.9",
     "celery>=5.4",
+    "minio>=7.2",
 ]
 
 [project.optional-dependencies]

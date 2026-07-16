@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # Prod'da .env orqali kuchli qiymatga almashtiriladi.
     platform_api_key: str = "dev-platform-key-change-me"
 
+    # MinIO (selfie/foto — presigned PUT bilan mobil to'g'ridan yuklaydi)
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_secure: bool = False  # dev: HTTP; prod: TLS
+    selfie_url_ttl_seconds: int = 5 * 60
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -9,6 +9,7 @@ from app.modules.checkins import service
 from app.modules.checkins.schemas import CheckinIn, CheckinOut, CommentIn, ReviewIn
 from app.modules.rbac.deps import TenantContext, get_context, require_role, visible_user_ids
 from app.modules.tenancy.status import require_active_org
+from app.storage import presign_selfie_get, presign_selfie_put
 
 router = APIRouter(prefix="/v1/checkins", tags=["checkins"])
 
@@ -26,6 +27,13 @@ def _audit(s, ctx: TenantContext, action: str, object_id: uuid.UUID, detail: dic
             detail=detail,
         )
     )
+
+
+@router.post("/selfie-url")
+async def selfie_url(ctx: TenantContext = Depends(require_active_org)):
+    """Mobil ilova check-in'dan OLDIN shu URL'ga selfie'ni to'g'ridan MinIO'ga
+    PUT qiladi, keyin qaytgan object_key'ni check-in'ga qo'shadi (reja §3)."""
+    return await presign_selfie_put(ctx.org_id, ctx.user_id)
 
 
 @router.post("", response_model=CheckinOut)
@@ -105,6 +113,28 @@ async def _load_scoped(s, ctx: TenantContext, checkin_id: uuid.UUID) -> Checkin:
 async def get_checkin(checkin_id: uuid.UUID, ctx: TenantContext = Depends(get_context)):
     async with ctx.session() as s:
         return service._to_dict(await _load_scoped(s, ctx, checkin_id))
+
+
+@router.get("/{checkin_id}/selfie-url")
+async def get_selfie_url(checkin_id: uuid.UUID, ctx: TenantContext = Depends(get_context)):
+    """Review-navbat/tafsilot: selfie'ni ko'rish uchun qisqa-muddatli URL.
+    Ko'rish access_log'ga yoziladi (kuzatuvchini kuzatish — reja §12)."""
+    async with ctx.session() as s:
+        c = await _load_scoped(s, ctx, checkin_id)
+        if c.selfie_key is None:
+            raise HTTPException(404, "selfie yo'q")
+        s.add(
+            AuditLog(
+                org_id=ctx.org_id,
+                actor_id=ctx.user_id,
+                action="checkin_selfie_viewed",
+                object_type="checkin",
+                object_id=c.id,
+                detail={},
+            )
+        )
+        url = await presign_selfie_get(ctx.org_id, c.selfie_key)
+    return {"url": url}
 
 
 @router.post("/{checkin_id}/comment", response_model=CheckinOut)

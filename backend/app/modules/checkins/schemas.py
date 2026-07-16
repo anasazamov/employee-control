@@ -21,6 +21,7 @@ class CheckinIn(BaseModel):
     accuracy_m: float | None = Field(default=None, ge=0)
     site_id: uuid.UUID | None = None  # berilmasa lokatsiyadan avto-aniqlanadi
     comment: str | None = Field(default=None, max_length=4000)
+    selfie_key: str | None = None  # presign_selfie_put'dan olingan obyekt-kaliti
     face: FaceResultIn = FaceResultIn()
     device_integrity: dict = Field(default_factory=dict)  # is_mock, root_flags...
     signature: str | None = None  # base64 ECDSA(kanonik payload)

@@ -23,6 +23,7 @@ from app.modules.checkins.signing import canonical_payload, verify_signature
 from app.modules.rbac.deps import TenantContext
 from app.modules.tracking import keys
 from app.redis import get_redis
+from app.storage import valid_selfie_key
 from app.utils import iso_utc
 
 RISK_WEIGHTS = {
@@ -151,6 +152,13 @@ async def create_checkin(ctx: TenantContext, body: CheckinIn) -> dict:
             else:
                 raise SignatureError("imzo yaroqsiz — yozuv rad etildi")
 
+        # selfie_key faqat shu xodim prefiksiga mos bo'lsa qabul qilinadi
+        selfie_key = None
+        if body.selfie_key is not None and valid_selfie_key(
+            ctx.org_id, ctx.user_id, body.selfie_key
+        ):
+            selfie_key = body.selfie_key
+
         site = await _resolve_site(s, body)
         risk_score, reasons = _risk(body, site, signed)
         verdict = "flagged" if risk_score >= FLAG_THRESHOLD else "pending"
@@ -168,6 +176,7 @@ async def create_checkin(ctx: TenantContext, body: CheckinIn) -> dict:
                 lon=body.lon,
                 accuracy_m=body.accuracy_m,
                 inside_geofence=site.inside if site else None,
+                selfie_key=selfie_key,
                 comment=body.comment,
                 ondevice_score=body.face.local_score,
                 device_integrity=body.device_integrity,
