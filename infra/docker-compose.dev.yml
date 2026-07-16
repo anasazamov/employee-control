@@ -28,6 +28,11 @@ services:
     volumes:
       - redis_data:/data
 
+  # Ilova rollari dev'da qo'lda ishga tushiriladi (README). Prod-compose'da
+  # api|ws|worker|beat alohida servis sifatida shu image'dan ko'tariladi:
+  #   worker: celery -A app.celery_app worker -Q default,face
+  #   beat:   celery -A app.celery_app beat
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
