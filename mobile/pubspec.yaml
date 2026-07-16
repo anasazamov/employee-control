@@ -32,11 +32,22 @@ dependencies:
   sqlite3_flutter_libs: ^0.5.24
   path_provider: ^2.1.4
 
-  # Xarita — o'z Martin tile-serveri, OSM vector tile (PLAN.md §11)
-  maplibre_gl: ^0.20.0
+  # Xarita — o'z Martin tile-serveri, OSM vector tile (PLAN.md §11).
+  # 0.20.x Flutter 3.29+ (v1 embedding olib tashlangan) bilan kompilyatsiya
+  # bo'lmaydi; 0.26+ mos keladi.
+  maplibre_gl: ^0.26.0
 
   # Qurilmada yuz-detektsiya + liveness sifat-nazorati (PLAN.md §6)
-  google_mlkit_face_detection: ^0.11.0
+  google_mlkit_face_detection: ^0.13.0
+
+  # Kamera oqimi (old kamera) — liveness challenge va selfie olish (PLAN.md §6, §9)
+  camera: ^0.11.0
+
+  # Selfie'ni presigned MinIO PUT'ga yuborish + check-in POST (docs/API.md)
+  http: ^1.2.0
+
+  # Kamera / lokatsiya ruxsatlari
+  permission_handler: ^11.3.1
 
   # Geolokatsiya (bepul stack, PLAN.md §8)
   geolocator: ^13.0.1

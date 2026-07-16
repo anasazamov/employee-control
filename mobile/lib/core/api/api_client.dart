@@ -2,12 +2,18 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// API bazaviy manzili.
+/// API bazaviy manzili — muhit bo'yicha `--dart-define=API_BASE_URL=...` orqali
+/// qayta belgilanadi. Standart qiymat — jonli staging backend. Presigned selfie
+/// PUT URL'i serverdan ochiq MinIO xost bilan qaytadi (89.117.49.131:9010), shu
+/// sabab telefon selfie'ni to'g'ridan-to'g'ri yuklaydi. Endpoint yo'llari /v1
+/// prefiksi bilan: POST /v1/checkins/selfie-url, POST /v1/checkins.
 ///
-/// TODO: real domen + muhit bo'yicha --dart-define orqali konfiguratsiya
-/// (dev/stage/prod). Endpoint yo'llari /v1 prefiksi bilan yoziladi,
-/// masalan: POST /v1/auth/invite, POST /v1/auth/otp, POST /v1/checkins.
-const String kApiBaseUrl = 'https://api.example.uz';
+/// Android emulyatori xost-localhost uchun:
+/// `--dart-define=API_BASE_URL=http://10.0.2.2:8000`
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://89.117.49.131:8090',
+);
 
 /// Auth-token uchun xavfsiz saqlash (Keystore / Keychain).
 class TokenStore {

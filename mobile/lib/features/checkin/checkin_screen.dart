@@ -1,8 +1,15 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api/api_client.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'checkin_api.dart';
+import 'face_liveness_view.dart';
 
 /// Yaqin obyekt (site) modeli — mock.
 ///
@@ -45,36 +52,66 @@ NearbySite? _siteById(String? id) {
   return null;
 }
 
+/// CheckinApi provideri — bazaviy URL (api_client.dart) + secure-storage token.
+final checkinApiProvider = Provider<CheckinApi>((ref) {
+  final tokens = ref.read(tokenStoreProvider);
+  final api = CheckinApi(baseUrl: kApiBaseUrl, tokenReader: tokens.read);
+  ref.onDispose(api.close);
+  return api;
+});
+
 /// Check-in oqimi holati: 4 bosqich (PLAN.md §9) —
 /// 1 OBYEKT -> 2 YUZ -> 3 IZOH -> 4 YUBORISH.
 class CheckinState {
   const CheckinState({
     this.step = 0,
     this.selectedSiteId,
-    this.faceVerified = false,
+    this.selfieJpeg,
+    this.livenessPassed = false,
+    this.localMatch = false,
     this.comment = '',
     this.submitting = false,
+    this.result,
+    this.error,
   });
 
   final int step;
   final String? selectedSiteId;
-  final bool faceVerified;
+
+  /// Olingan selfie JPEG baytlari (liveness o'tgach).
+  final Uint8List? selfieJpeg;
+  final bool livenessPassed;
+  final bool localMatch;
   final String comment;
   final bool submitting;
+
+  /// Server hukmi (POST /v1/checkins javobi) — yuborilgach.
+  final CheckinResult? result;
+  final String? error;
+
+  bool get faceCaptured => selfieJpeg != null;
 
   CheckinState copyWith({
     int? step,
     String? selectedSiteId,
-    bool? faceVerified,
+    Uint8List? selfieJpeg,
+    bool? livenessPassed,
+    bool? localMatch,
     String? comment,
     bool? submitting,
+    CheckinResult? result,
+    String? error,
   }) {
     return CheckinState(
       step: step ?? this.step,
       selectedSiteId: selectedSiteId ?? this.selectedSiteId,
-      faceVerified: faceVerified ?? this.faceVerified,
+      selfieJpeg: selfieJpeg ?? this.selfieJpeg,
+      livenessPassed: livenessPassed ?? this.livenessPassed,
+      localMatch: localMatch ?? this.localMatch,
       comment: comment ?? this.comment,
       submitting: submitting ?? this.submitting,
+      result: result ?? this.result,
+      error: error ?? this.error,
     );
   }
 }
@@ -86,28 +123,87 @@ class CheckinController extends Notifier<CheckinState> {
   void selectSite(String siteId) =>
       state = state.copyWith(selectedSiteId: siteId);
 
-  /// Mock yuz-tekshiruv.
-  ///
-  /// TODO: google_mlkit_face_detection bilan kamera-oqimda detektsiya +
-  /// 2 tasodifiy liveness-challenge (ko'z yumish / burilish / tabassum),
-  /// so'ng MobileFaceNet (TFLite) 1:1 — natija faqat maslahat, yakuniy hukm
-  /// server InsightFace'da (PLAN.md §6). 3× lokal fail bo'lsa ham yuborishga
-  /// ruxsat: 'unverified_on_device' bayrog'i bilan (PLAN.md §9).
-  void mockFaceCapture() => state = state.copyWith(faceVerified: true);
+  /// Qurilmadagi ML Kit liveness natijasini (selfie + hukm) saqlaydi.
+  void setFaceResult(FaceCaptureResult r) {
+    state = state.copyWith(
+      selfieJpeg: r.jpegBytes,
+      livenessPassed: r.livenessPassed,
+      localMatch: r.localMatch,
+    );
+  }
 
   void setComment(String value) => state = state.copyWith(comment: value);
 
   void goToStep(int step) => state = state.copyWith(step: step);
 
-  /// Mock yuborish.
-  ///
-  /// TODO: kanonik JSON qurilma-kaliti bilan imzolanadi -> POST /v1/checkins;
-  /// online -> verdikt 1–2 s; offline -> Drift navbatiga yoziladi va
-  /// "signal topilganda yuboriladi" (PLAN.md §9).
+  /// Yuborish oqimi: selfie-url -> presigned PUT -> POST /v1/checkins.
+  /// GPS joriy nuqtadan (geolocator), hukm serverdan qaytadi.
   Future<void> submit() async {
-    state = state.copyWith(submitting: true);
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    state = state.copyWith(submitting: false);
+    final jpeg = state.selfieJpeg;
+    if (jpeg == null) return;
+
+    // submitting=true, oldingi natija/xatoni tozalaymiz.
+    state = CheckinState(
+      step: state.step,
+      selectedSiteId: state.selectedSiteId,
+      selfieJpeg: jpeg,
+      livenessPassed: state.livenessPassed,
+      localMatch: state.localMatch,
+      comment: state.comment,
+      submitting: true,
+    );
+
+    try {
+      final api = ref.read(checkinApiProvider);
+      final position = await _currentPosition();
+
+      final upload = await api.requestSelfieUrl();
+      await api.putSelfie(upload.url, jpeg);
+
+      final result = await api.submitCheckin(
+        checkinId: generateUuidV4(),
+        ts: DateTime.now().toUtc().toIso8601String(),
+        selfieKey: upload.objectKey,
+        localMatch: state.localMatch,
+        livenessPassed: state.livenessPassed,
+        lat: position?.latitude,
+        lon: position?.longitude,
+        accuracyM: position?.accuracy,
+        siteId: state.selectedSiteId,
+        comment: state.comment,
+        deviceIntegrity: {
+          'platform': Platform.isAndroid ? 'android' : 'ios',
+          'debug': true,
+        },
+      );
+
+      state = state.copyWith(submitting: false, result: result);
+    } catch (e) {
+      state = state.copyWith(submitting: false, error: e.toString());
+    }
+  }
+
+  /// Joriy GPS nuqtasi — ruxsat/servis bo'lmasa null (check-in baribir ketadi).
+  Future<Position?> _currentPosition() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   void reset() => state = const CheckinState();
@@ -132,6 +228,14 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
     super.dispose();
   }
 
+  Future<void> _startFaceCapture() async {
+    final result = await Navigator.of(context).push<FaceCaptureResult>(
+      MaterialPageRoute(builder: (_) => const FaceCaptureScreen()),
+    );
+    if (result == null || !mounted) return;
+    ref.read(checkinControllerProvider.notifier).setFaceResult(result);
+  }
+
   Future<void> _handleContinue() async {
     final l10n = AppLocalizations.of(context);
     final state = ref.read(checkinControllerProvider);
@@ -139,22 +243,34 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
 
     switch (state.step) {
       case 0:
-        if (state.selectedSiteId != null) {
-          controller.goToStep(1);
-        }
+        if (state.selectedSiteId != null) controller.goToStep(1);
       case 1:
-        controller.goToStep(2);
+        if (state.faceCaptured) controller.goToStep(2);
       case 2:
         controller.goToStep(3);
       case 3:
+        if (state.result != null) {
+          // Yuborilgan — yakunlash.
+          controller.reset();
+          _commentController.clear();
+          context.go('/home');
+          return;
+        }
         await controller.submit();
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.checkinSuccessMessage)),
-        );
-        controller.reset();
-        _commentController.clear();
-        context.go('/home');
+        final after = ref.read(checkinControllerProvider);
+        final messenger = ScaffoldMessenger.of(context);
+        if (after.result != null) {
+          messenger.showSnackBar(
+            SnackBar(content: Text(l10n.checkinSuccessMessage)),
+          );
+        } else if (after.error != null) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('${l10n.checkinSubmitError}: ${after.error}'),
+            ),
+          );
+        }
     }
   }
 
@@ -168,19 +284,28 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
       appBar: AppBar(title: Text(l10n.checkinButton)),
       body: Stepper(
         currentStep: state.step,
-        onStepContinue: () => _handleContinue(),
+        onStepContinue: _handleContinue,
         onStepCancel:
             state.step == 0 ? null : () => controller.goToStep(state.step - 1),
         onStepTapped: (index) {
-          // Faqat orqaga qaytishga ruxsat.
           if (index < state.step) controller.goToStep(index);
         },
         controlsBuilder: (context, details) {
           final isLast = state.step == 3;
+          final submitted = state.result != null;
           final canContinue = switch (state.step) {
             0 => state.selectedSiteId != null,
+            1 => state.faceCaptured,
             _ => true,
           };
+          final String label;
+          if (!isLast) {
+            label = l10n.nextButton;
+          } else if (submitted) {
+            label = l10n.checkinFinish;
+          } else {
+            label = l10n.submitButton;
+          }
           return Padding(
             padding: const EdgeInsets.only(top: 16),
             child: Row(
@@ -195,10 +320,10 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
                           width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(isLast ? l10n.submitButton : l10n.nextButton),
+                      : Text(label),
                 ),
                 const SizedBox(width: 8),
-                if (state.step > 0)
+                if (state.step > 0 && !submitted)
                   TextButton(
                     onPressed: state.submitting ? null : details.onStepCancel,
                     child: Text(l10n.backButton),
@@ -222,8 +347,9 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
             isActive: state.step >= 1,
             state: state.step > 1 ? StepState.complete : StepState.indexed,
             content: _FaceStep(
-              verified: state.faceVerified,
-              onMockCapture: controller.mockFaceCapture,
+              captured: state.faceCaptured,
+              selfie: state.selfieJpeg,
+              onStart: _startFaceCapture,
             ),
           ),
           Step(
@@ -282,46 +408,74 @@ class _SiteStep extends StatelessWidget {
 }
 
 class _FaceStep extends StatelessWidget {
-  const _FaceStep({required this.verified, required this.onMockCapture});
+  const _FaceStep({
+    required this.captured,
+    required this.selfie,
+    required this.onStart,
+  });
 
-  final bool verified;
-  final VoidCallback onMockCapture;
+  final bool captured;
+  final Uint8List? selfie;
+  final VoidCallback onStart;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // TODO: ML Kit liveness — kamera-preview shu joyga keladi
-        // (google_mlkit_face_detection + tasodifiy 2 challenge, PLAN.md §6).
         Container(
           height: 220,
-          width: double.infinity,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            border: Border.all(color: Theme.of(context).colorScheme.outline),
+            border: Border.all(color: scheme.outline),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                verified ? Icons.verified_user : Icons.face,
-                size: 64,
-                color: verified ? Colors.green : null,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                verified
-                    ? 'Yuz tekshirildi (mock)'
-                    : 'Kamera oldi (stub)',
-              ),
-            ],
-          ),
+          clipBehavior: Clip.antiAlias,
+          child: captured && selfie != null
+              ? Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.memory(selfie!, fit: BoxFit.cover),
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: CircleAvatar(
+                        backgroundColor: Colors.green,
+                        child: const Icon(Icons.check, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.face_retouching_natural,
+                        size: 64, color: scheme.primary),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        l10n.faceStepNotCaptured,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
         ),
         const SizedBox(height: 12),
+        if (captured)
+          Text(
+            l10n.faceStepCaptured,
+            style: TextStyle(color: Colors.green.shade700),
+          ),
+        const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: verified ? null : onMockCapture,
-          icon: const Icon(Icons.camera_alt_outlined),
-          label: const Text('Yuzni tekshirish (mock)'),
+          onPressed: onStart,
+          icon: Icon(captured ? Icons.refresh : Icons.camera_alt_outlined),
+          label: Text(captured ? l10n.faceStepRetake : l10n.faceStepStart),
         ),
       ],
     );
@@ -337,6 +491,7 @@ class _SummaryStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final site = _siteById(state.selectedSiteId);
+    final result = state.result;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -345,7 +500,7 @@ class _SummaryStep extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           '${l10n.checkinStepFace}: '
-          '${state.faceVerified ? 'OK (on-device)' : 'unverified_on_device'}',
+          '${state.livenessPassed ? 'liveness OK (on-device)' : 'unverified_on_device'}',
         ),
         const SizedBox(height: 4),
         Text(
@@ -353,13 +508,98 @@ class _SummaryStep extends StatelessWidget {
           '${state.comment.isEmpty ? '—' : state.comment}',
         ),
         const SizedBox(height: 12),
-        Text(
-          // TODO(l10n): ARB'ga ko'chirish.
-          'Yozuv qurilma-kaliti bilan imzolanadi va serverda mustaqil '
-          'tekshiriladi. Oflaynda navbatga yoziladi.',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        if (result != null) _VerdictCard(result: result),
+        if (state.error != null)
+          Card(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text('${l10n.checkinSubmitError}: ${state.error}'),
+            ),
+          ),
+        if (result == null && state.error == null)
+          Text(
+            'Yozuv serverda mustaqil tekshiriladi (yuz-worker hukmi). '
+            'Oflaynda navbatga yoziladi.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
       ],
     );
+  }
+}
+
+class _VerdictCard extends StatelessWidget {
+  const _VerdictCard({required this.result});
+
+  final CheckinResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final (label, color, icon) = _verdictStyle(l10n, result.verdict);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.checkinResultTitle,
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(icon, color: color),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (result.riskScore != null)
+              Text('${l10n.checkinRiskScore}: ${result.riskScore}'),
+            if (result.serverFaceScore != null)
+              Text('${l10n.checkinFaceScore}: ${result.serverFaceScore}'),
+            if (result.insideGeofence != null)
+              Text(
+                '${l10n.checkinInsideGeofence}: '
+                '${result.insideGeofence! ? '✓' : '✗'}',
+              ),
+            if (result.verdictReasons.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  result.verdictReasons.join(', '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  (String, Color, IconData) _verdictStyle(
+      AppLocalizations l10n, String? verdict) {
+    switch (verdict) {
+      case 'verified':
+        return (l10n.checkinVerdictVerified, Colors.green, Icons.verified);
+      case 'flagged':
+        return (l10n.checkinVerdictFlagged, Colors.orange, Icons.flag);
+      case 'rejected':
+        return (l10n.checkinVerdictRejected, Colors.red, Icons.cancel);
+      default:
+        return (
+          l10n.checkinVerdictPending,
+          Colors.blueGrey,
+          Icons.hourglass_top
+        );
+    }
   }
 }

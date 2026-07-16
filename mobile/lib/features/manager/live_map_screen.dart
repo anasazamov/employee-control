@@ -6,7 +6,7 @@ import '../../l10n/generated/app_localizations.dart';
 /// Xarita style URL.
 ///
 /// TODO: o'z Martin tile-serveridagi style'ga almashtirish (PLAN.md §11),
-/// masalan: https://tiles.<domen>/styles/basic/style.json
+/// masalan: `https://tiles.<domen>/styles/basic/style.json`
 /// + oflayn MBTiles-pak — signal yo'q obyektlarda ham xarita ishlashi uchun.
 const String kMapStyleUrl = 'https://demotiles.maplibre.org/style.json';
 
