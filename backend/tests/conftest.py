@@ -8,8 +8,13 @@ so'ng ikkita test-tenant provision qilinadi.
 """
 
 import asyncio
+import os
 import uuid
 from dataclasses import dataclass
+
+# Testlar alohida Redis DB (15) ishlatadi — dev-ma'lumot (db 0) flush bo'lmasligi uchun.
+# app.config import qilinishidan OLDIN o'rnatilishi shart (Settings lru_cache).
+os.environ.setdefault("EC_REDIS_URL", "redis://localhost:6380/15")
 
 import pytest
 from alembic.config import Config
@@ -17,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from alembic import command
 from app.config import get_settings
+from app.modules.auth.security import issue_token
 from app.modules.tenancy.service import provision_tenant
 
 BACKEND_DIR = __file__.rsplit("tests", 1)[0]
@@ -72,25 +78,49 @@ async def _seed() -> Seed:
         await engine.dispose()
 
 
+async def _flush_test_redis() -> None:
+    import redis.asyncio as aioredis
+
+    r = aioredis.from_url(get_settings().redis_url)
+    try:
+        await r.flushdb()
+    finally:
+        await r.aclose()
+
+
 @pytest.fixture(scope="session")
 def seed() -> Seed:
     cfg = Config(BACKEND_DIR + "alembic.ini")
     cfg.set_main_option("script_location", BACKEND_DIR + "alembic")
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
+    asyncio.run(_flush_test_redis())
     return asyncio.run(_seed())
 
 
+def make_access_token(org: SeededOrg, role: str = "org_admin") -> str:
+    return issue_token(user_id=org.owner_id, org_id=org.org_id, role=role, kind="access")
+
+
+def auth_header(org: SeededOrg, role: str = "org_admin") -> dict[str, str]:
+    return {"Authorization": f"Bearer {make_access_token(org, role)}"}
+
+
 @pytest.fixture(autouse=True)
-async def _reset_global_engine():
-    """Har test o'z event-loop'ida — global engine'ni testlar orasida tozalaymiz."""
+async def _reset_global_clients():
+    """Har test o'z event-loop'ida — loop'ga bog'langan global mijozlar (engine, redis)
+    testlar orasida tozalanadi."""
     yield
     import app.db as dbmod
+    import app.redis as rmod
 
     if dbmod._engine is not None:
         await dbmod._engine.dispose()
         dbmod._engine = None
         dbmod._sessionmaker = None
+    if rmod._client is not None:
+        await rmod._client.aclose()
+        rmod._client = None
 
 
 @pytest.fixture

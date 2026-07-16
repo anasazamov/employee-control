@@ -32,15 +32,11 @@ class TenantContext:
         return tenant_session(self.org_id)
 
 
-async def get_context(
-    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> TenantContext:
-    if creds is None:
-        raise HTTPException(status_code=401, detail="token yo'q")
-    try:
-        payload = decode_token(creds.credentials, expected_kind="access")
-    except pyjwt.PyJWTError as e:
-        raise HTTPException(status_code=401, detail="token yaroqsiz") from e
+def context_from_token(token: str) -> TenantContext:
+    """Access-token → TenantContext — HTTP (get_context) va WS (/v1/live) uchun
+    YAGONA yo'l; claim-to'plami o'zgarsa bitta joy o'zgaradi.
+    PyJWTError'ni chaqiruvchi o'zi 401/4401 ga aylantiradi."""
+    payload = decode_token(token, expected_kind="access")
     device_id = payload.get("device_id")
     return TenantContext(
         org_id=uuid.UUID(payload["org_id"]),
@@ -48,6 +44,17 @@ async def get_context(
         role=payload["role"],
         device_id=uuid.UUID(device_id) if device_id else None,
     )
+
+
+async def get_context(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> TenantContext:
+    if creds is None:
+        raise HTTPException(status_code=401, detail="token yo'q")
+    try:
+        return context_from_token(creds.credentials)
+    except pyjwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail="token yaroqsiz") from e
 
 
 def require_role(*roles: str):
@@ -59,15 +66,25 @@ def require_role(*roles: str):
     return dep
 
 
-async def resolve_visible_paths(ctx: TenantContext) -> list[str]:
-    """Chaqiruvchi ko'ra oladigan ltree-yo'llar. Repositorylar
-    `WHERE departments.path <@ ANY(:paths)` qo'llaydi (org-chegara esa RLS'da)."""
+async def visible_user_ids(ctx: TenantContext) -> set[str] | None:
+    """Chaqiruvchi ko'ra oladigan xodim-id'lar (str). None = org bo'yicha hammasi.
+    org_admin/hr → hammasi; dept_head → o'z bo'limi subtree'si; field_employee → o'zi.
+    Org-chegara baribir RLS/kanal-prefiksda — bu faqat ichki doiralash."""
+    if ctx.role in ("org_admin", "hr"):
+        return None
+    self_only = {str(ctx.user_id)}
+    if ctx.role == "field_employee":
+        return self_only
     async with ctx.session() as s:
-        if ctx.role in ("org_admin", "hr"):
-            rows = await s.scalars(select(Department.path).where(Department.path.op("~")("*{1}")))
-            return list(rows)
         me = await s.get(User, ctx.user_id)
-        if me is None or me.department_id is None:
-            return []
-        dept = await s.get(Department, me.department_id)
-        return [str(dept.path)] if dept else []
+        dept = await s.get(Department, me.department_id) if me and me.department_id else None
+        if dept is None:
+            return self_only
+        rows = await s.execute(
+            select(User.id)
+            .join(Department, Department.id == User.department_id)
+            .where(Department.path.op("<@")(dept.path))
+        )
+        return self_only | {str(r[0]) for r in rows}
+
+
