@@ -1,29 +1,46 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
 /// Aktivatsiya API mijozi (docs/API.md §Auth): invite resolve -> OTP -> activate.
 /// Org yuz/OTP'dan OLDIN invite orqali aniqlanadi (PLAN.md §7).
 class AuthApi {
-  AuthApi({required this.baseUrl, http.Client? client})
-      : _client = client ?? http.Client();
+  AuthApi({required this.baseUrl, http.Client? client, Duration? timeout})
+      : _client = client ?? http.Client(),
+        _timeout = timeout ?? const Duration(seconds: 15);
 
   final String baseUrl;
   final http.Client _client;
+  final Duration _timeout;
 
-  Map<String, String> get _json => const {'Content-Type': 'application/json'};
+  /// POST + timeout + xato-normalizatsiya (cheksiz osilib qolmaslik uchun).
+  Future<Map<String, dynamic>> _post(String stage, String path, Object body) async {
+    try {
+      final res = await _client
+          .post(
+            Uri.parse('$baseUrl$path'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(_timeout);
+      if (res.statusCode >= 400) {
+        throw AuthApiException(stage, res.statusCode, res.body);
+      }
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } on TimeoutException {
+      throw AuthApiException(stage, 0, 'server javob bermadi (vaqt tugadi)');
+    } on SocketException catch (e) {
+      throw AuthApiException(stage, 0, 'serverga ulanib bo\'lmadi: ${e.message}');
+    } on http.ClientException catch (e) {
+      throw AuthApiException(stage, 0, e.message);
+    }
+  }
 
   /// POST /v1/auth/invites/resolve — token -> {org_id, org_name, masked_phone}.
   Future<ResolvedInvite> resolveInvite(String token) async {
-    final res = await _client.post(
-      Uri.parse('$baseUrl/v1/auth/invites/resolve'),
-      headers: _json,
-      body: jsonEncode({'token': token}),
-    );
-    if (res.statusCode >= 400) {
-      throw AuthApiException('invites/resolve', res.statusCode, res.body);
-    }
-    final j = jsonDecode(res.body) as Map<String, dynamic>;
+    final j = await _post('invites/resolve', '/v1/auth/invites/resolve', {'token': token});
     return ResolvedInvite(
       orgId: j['org_id'] as String,
       orgName: j['org_name'] as String,
@@ -34,15 +51,7 @@ class AuthApi {
   /// POST /v1/auth/otp/request — SMS OTP yuboradi. Staging (DEBUG=true) `dev_code`
   /// qaytaradi; prod'da null (faqat SMS).
   Future<String?> requestOtp(String token) async {
-    final res = await _client.post(
-      Uri.parse('$baseUrl/v1/auth/otp/request'),
-      headers: _json,
-      body: jsonEncode({'token': token}),
-    );
-    if (res.statusCode >= 400) {
-      throw AuthApiException('otp/request', res.statusCode, res.body);
-    }
-    final j = jsonDecode(res.body) as Map<String, dynamic>;
+    final j = await _post('otp/request', '/v1/auth/otp/request', {'token': token});
     return j['dev_code'] as String?;
   }
 
@@ -54,23 +63,15 @@ class AuthApi {
     String platform = 'android',
     String? model,
   }) async {
-    final res = await _client.post(
-      Uri.parse('$baseUrl/v1/auth/activate'),
-      headers: _json,
-      body: jsonEncode({
-        'token': token,
-        'otp_code': otpCode,
-        'device': {
-          'platform': platform,
-          'fingerprint': deviceFingerprint,
-          if (model != null) 'model': model,
-        },
-      }),
-    );
-    if (res.statusCode >= 400) {
-      throw AuthApiException('activate', res.statusCode, res.body);
-    }
-    final j = jsonDecode(res.body) as Map<String, dynamic>;
+    final j = await _post('activate', '/v1/auth/activate', {
+      'token': token,
+      'otp_code': otpCode,
+      'device': {
+        'platform': platform,
+        'fingerprint': deviceFingerprint,
+        if (model != null) 'model': model,
+      },
+    });
     final user = (j['user'] as Map<String, dynamic>?) ?? const {};
     return ActivationResult(
       accessToken: j['access_token'] as String,

@@ -104,10 +104,12 @@ class CheckinApi {
 
   /// POST /v1/checkins/selfie-url — presigned PUT manzilini oladi.
   Future<SelfieUpload> requestSelfieUrl() async {
-    final res = await _client.post(
-      Uri.parse('$baseUrl/v1/checkins/selfie-url'),
-      headers: await _authHeaders(),
-    );
+    final res = await _client
+        .post(
+          Uri.parse('$baseUrl/v1/checkins/selfie-url'),
+          headers: await _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 15));
     if (res.statusCode >= 400) {
       throw CheckinApiException('selfie-url', res.statusCode, res.body);
     }
@@ -117,11 +119,13 @@ class CheckinApi {
 
   /// Selfie JPEG baytlarini presigned URL'ga to'g'ridan-to'g'ri PUT qiladi.
   Future<void> putSelfie(String url, Uint8List jpegBytes) async {
-    final res = await _client.put(
-      Uri.parse(url),
-      headers: const {'Content-Type': 'image/jpeg'},
-      body: jpegBytes,
-    );
+    final res = await _client
+        .put(
+          Uri.parse(url),
+          headers: const {'Content-Type': 'image/jpeg'},
+          body: jpegBytes,
+        )
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode >= 400) {
       throw CheckinApiException('selfie-put', res.statusCode, res.body);
     }
@@ -157,11 +161,13 @@ class CheckinApi {
       },
       if (deviceIntegrity != null) 'device_integrity': deviceIntegrity,
     };
-    final res = await _client.post(
-      Uri.parse('$baseUrl/v1/checkins'),
-      headers: await _authHeaders(),
-      body: jsonEncode(body),
-    );
+    final res = await _client
+        .post(
+          Uri.parse('$baseUrl/v1/checkins'),
+          headers: await _authHeaders(),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 25));
     if (res.statusCode >= 400) {
       throw CheckinApiException('checkins', res.statusCode, res.body);
     }
