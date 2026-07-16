@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     minio_secure: bool = False  # dev: HTTP; prod: TLS
     selfie_url_ttl_seconds: int = 5 * 60
 
+    # Yuz-verifikatsiya (reja §6)
+    face_backend: str = "stub"  # "stub" (dev/test) | "insightface" (server)
+    face_model_pack: str = "buffalo_s"  # server RAM-cheklovi uchun kichik model
+    # 1:1 verify chegaralari (pilotda kalibrlanadi — reja §6). cosine:
+    face_verify_threshold: float = 0.45  # >= → VERIFIED
+    face_review_threshold: float = 0.30  # 0.30–0.45 → REVIEW; < 0.30 → REJECTED
+    # 1:N identify (aktivatsiya) — qat'iyroq
+    face_identify_threshold: float = 0.45
+    face_identify_margin: float = 0.10  # top1 − top2
+    # enrollment-dedup: shu chegaradan yuqori o'xshashlik → bloklash
+    face_dedup_threshold: float = 0.55
+
 
 @lru_cache
 def get_settings() -> Settings:

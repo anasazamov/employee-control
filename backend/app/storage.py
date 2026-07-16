@@ -56,6 +56,21 @@ async def presign_selfie_put(org_id: uuid.UUID, user_id: uuid.UUID) -> dict:
     return {"url": url, "object_key": object_key, "bucket": bucket}
 
 
+async def fetch_object(org_id: uuid.UUID, object_key: str) -> bytes:
+    """Selfie baytlarini o'qish (server yuz-verifikatsiyasi uchun)."""
+    bucket = _bucket(org_id)
+
+    def _work() -> bytes:
+        resp = _client().get_object(bucket, object_key)
+        try:
+            return resp.read()
+        finally:
+            resp.close()
+            resp.release_conn()
+
+    return await asyncio.to_thread(_work)
+
+
 async def presign_selfie_get(org_id: uuid.UUID, object_key: str) -> str:
     """Review-navbat/tafsilot uchun qisqa-muddatli o'qish-URL."""
     bucket = _bucket(org_id)

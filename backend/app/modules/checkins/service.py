@@ -20,10 +20,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.models import Assignment, Checkin, Device
 from app.modules.checkins.schemas import CheckinIn
 from app.modules.checkins.signing import canonical_payload, verify_signature
+from app.modules.face import service as face_service
+from app.modules.face.embedder import FaceError
 from app.modules.rbac.deps import TenantContext
 from app.modules.tracking import keys
 from app.redis import get_redis
-from app.storage import valid_selfie_key
+from app.storage import fetch_object, valid_selfie_key
 from app.utils import iso_utc
 
 RISK_WEIGHTS = {
@@ -125,6 +127,39 @@ def _risk(body: CheckinIn, site: SiteMatch | None, signed: str) -> tuple[int, li
     return min(100, sum(RISK_WEIGHTS[r] for r in reasons)), reasons
 
 
+async def _apply_face_verdict(
+    session, ctx: TenantContext, selfie_key: str | None, risk_score: int, reasons: list[str]
+) -> tuple[float | None, str]:
+    """Server 1:1 yuz-verifikatsiyasi natijasini checkin-verdictga qo'shadi.
+    Qaytaradi: (server_face_score, verdict). `reasons` joyida to'ldiriladi."""
+    base_verdict = "flagged" if risk_score >= FLAG_THRESHOLD else "pending"
+    if selfie_key is None:
+        return None, base_verdict
+
+    try:
+        image = await fetch_object(ctx.org_id, selfie_key)
+        res = await face_service.verify(session, user_id=ctx.user_id, image_bytes=image)
+    except FaceError:
+        # Serverda yuz o'qilmadi (sifat) — review'ga
+        reasons.append("server_face_unreadable")
+        return None, "flagged"
+    except Exception:  # noqa: BLE001 — storage/model xatosi check-in'ni yo'qotmasin
+        reasons.append("server_face_error")
+        return None, base_verdict
+
+    if res.verdict == "no_enrollment":
+        reasons.append("no_enrollment")
+        return None, "flagged" if risk_score >= FLAG_THRESHOLD else "pending"
+    if res.verdict == "rejected":
+        reasons.append("server_face_rejected")
+        return res.score, "rejected"  # shaxs mos emas — hard reject
+    if res.verdict == "review":
+        reasons.append("server_face_review")
+        return res.score, "flagged"
+    # verified: yuz tasdiqlandi — boshqa risk-signallar bo'lmasa 'verified'
+    return res.score, "flagged" if risk_score >= FLAG_THRESHOLD else "verified"
+
+
 async def create_checkin(ctx: TenantContext, body: CheckinIn) -> dict:
     async with ctx.session() as s:
         # Imzo-siyosati (signing.py docstring): yaroqsiz → SignatureError (400)
@@ -161,7 +196,14 @@ async def create_checkin(ctx: TenantContext, body: CheckinIn) -> dict:
 
         site = await _resolve_site(s, body)
         risk_score, reasons = _risk(body, site, signed)
-        verdict = "flagged" if risk_score >= FLAG_THRESHOLD else "pending"
+
+        # SERVER YUZ-VERIFIKATSIYA (reja §6: server hukmi authoritative). Selfie bo'lsa
+        # MinIO'dan olib 1:1 solishtiramiz. Natija verdictni belgilaydi:
+        #   verified → yuz tasdiqlandi (risk past bo'lsa checkin 'verified');
+        #   rejected → shaxs mos emas — hard reject; review/no_enrollment → flagged/reason.
+        server_face_score, verdict = await _apply_face_verdict(
+            s, ctx, selfie_key, risk_score, reasons
+        )
 
         stmt = (
             pg_insert(Checkin)
@@ -179,6 +221,7 @@ async def create_checkin(ctx: TenantContext, body: CheckinIn) -> dict:
                 selfie_key=selfie_key,
                 comment=body.comment,
                 ondevice_score=body.face.local_score,
+                server_face_score=server_face_score,
                 device_integrity=body.device_integrity,
                 risk_score=risk_score,
                 verdict=verdict,
@@ -241,6 +284,7 @@ def _to_dict(c: Checkin, duplicate: bool = False) -> dict:
         "verdict": c.verdict,
         "verdict_reasons": list(c.verdict_reasons or []),
         "risk_score": c.risk_score,
+        "server_face_score": c.server_face_score,
         "comment": c.comment,
         "duplicate": duplicate,
     }

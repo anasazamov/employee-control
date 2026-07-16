@@ -38,6 +38,7 @@ class CheckinOut(BaseModel):
     verdict: str
     verdict_reasons: list[str]
     risk_score: int
+    server_face_score: float | None
     comment: str | None
     duplicate: bool = False
 

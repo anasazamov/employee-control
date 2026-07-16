@@ -7,6 +7,7 @@ from app.models import User
 from app.modules.assignments.router import router as assignments_router
 from app.modules.auth.router import router as auth_router
 from app.modules.checkins.router import router as checkins_router
+from app.modules.face.router import router as face_router
 from app.modules.history.router import router as history_router
 from app.modules.org.departments import router as departments_router
 from app.modules.org.users import router as users_router
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(departments_router)
     app.include_router(users_router)
+    app.include_router(face_router)
     app.include_router(sites_router)
     app.include_router(tracking_router)
     app.include_router(checkins_router)
