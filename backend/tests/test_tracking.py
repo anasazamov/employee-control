@@ -54,12 +54,10 @@ async def _make_site(org_id: uuid.UUID, name: str = "Obyekt 14") -> uuid.UUID:
 
 async def test_ingest_idempotent(seed):
     base = datetime.now(UTC) - timedelta(minutes=30)
-    batch = {
-        "points": [
-            _pt(base, FAR_LAT, FAR_LON),
-            _pt(base + timedelta(seconds=30), FAR_LAT, FAR_LON),
-        ]
-    }
+    p1 = _pt(base, FAR_LAT, FAR_LON)
+    p2 = _pt(base + timedelta(seconds=30), FAR_LAT, FAR_LON)
+    batch = {"points": [p1, p2]}
+    my_uuids = [uuid.UUID(p1["point_uuid"]), uuid.UUID(p2["point_uuid"])]
 
     async with _client() as c:
         r1 = await c.post("/v1/locations/batch", json=batch, headers=auth_header(seed.org1))
@@ -71,8 +69,13 @@ async def test_ingest_idempotent(seed):
         assert r2.json()["accepted"] == 0
         assert r2.json()["duplicates"] == 2
 
+    # O'z nuqtalariga cheklangan (shared-seed DB: boshqa testlar ham nuqta qo'shadi)
     async with tenant_session(seed.org1.org_id) as s:
-        n = await s.scalar(select(func.count()).select_from(LocationPoint))
+        n = await s.scalar(
+            select(func.count())
+            .select_from(LocationPoint)
+            .where(LocationPoint.point_uuid.in_(my_uuids))
+        )
     assert n == 2
 
 
@@ -159,11 +162,12 @@ async def test_site_presence_enter_exit_hysteresis(seed):
         me = next(p for p in r.json()["points"] if p["user_id"] == str(seed.org1.owner_id))
         assert me["site_id"] is None
 
-    # DB'da yopiq davr to'g'ri yozilgan
+    # DB'da yopiq davr to'g'ri yozilgan (o'z obyektiga cheklangan — shared-seed DB)
     async with tenant_session(seed.org1.org_id) as s:
-        sp = (await s.scalars(select(SitePresence))).all()
+        sp = (
+            await s.scalars(select(SitePresence).where(SitePresence.site_id == site_id))
+        ).all()
     assert len(sp) == 1
-    assert sp[0].site_id == site_id
     assert sp[0].dwell_seconds == 30
     assert sp[0].exited_at is not None
 
