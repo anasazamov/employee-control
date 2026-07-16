@@ -26,6 +26,7 @@ mobile/android/.gradle/
 # Env & secrets
 .env
 .env.local
+.env.prod
 *.pem
 *.key
 
