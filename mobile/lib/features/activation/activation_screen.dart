@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/router.dart';
+import '../../core/api/api_client.dart';
+import '../../core/auth/jwt.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'auth_api.dart';
 
-/// Invite -> telefon -> SMS OTP bosqichli aktivatsiya oqimi (docs/PLAN.md §7).
+/// Invite -> OTP -> activate haqiqiy oqimi (docs/PLAN.md §7, API.md §Auth).
 ///
-/// Hozircha to'liq mock: hech qanday tarmoq so'rovi yuborilmaydi, OTP
-/// tasdig'i sessiyani (rol bilan) o'rnatadi va router redirect kerakli
-/// shell'ga o'tkazadi.
+/// 1) HR bergan taklif-tokeni kiritiladi -> POST /invites/resolve (org aniqlanadi).
+/// 2) POST /otp/request -> SMS OTP (staging DEBUG=true'da `dev_code` qaytadi va
+///    qulaylik uchun avtomatik to'ldiriladi).
+/// 3) POST /activate -> JWT + qurilma-bog'lash. Token secure-storage'ga saqlanadi;
+///    rol JWT'dan aniqlanadi va sessiya o'rnatiladi (router redirect qiladi).
 class ActivationScreen extends ConsumerStatefulWidget {
   const ActivationScreen({super.key});
 
@@ -20,19 +25,21 @@ class _ActivationScreenState extends ConsumerState<ActivationScreen> {
   static const int _stepCount = 3;
 
   final PageController _pageController = PageController();
-  final TextEditingController _inviteCodeController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _inviteController = TextEditingController();
   final TextEditingController _otpController = TextEditingController();
 
   int _step = 0;
-  bool _managerDemo = false;
-  bool _submitting = false;
+  bool _busy = false;
+  String? _error;
+
+  String? _inviteToken;
+  ResolvedInvite? _resolved;
+  String? _devCode; // staging DEBUG=true bo'lsa
 
   @override
   void dispose() {
     _pageController.dispose();
-    _inviteCodeController.dispose();
-    _phoneController.dispose();
+    _inviteController.dispose();
     _otpController.dispose();
     super.dispose();
   }
@@ -46,33 +53,80 @@ class _ActivationScreenState extends ConsumerState<ActivationScreen> {
     );
   }
 
-  void _submitInviteCode() {
-    // TODO: POST /v1/auth/invite — QR/deep-link (https://app.<domen>/a/{token})
-    // tokeni yoki 8 belgili qo'lda teriladigan kodni tekshiradi; javobda
-    // tenant-kontekst keladi: {org_id, nom, logo, rang, maskali-telefon} —
-    // ilova o'zini shu kontekstga "kiyintiradi" (PLAN.md §7).
-    _goToStep(1);
+  String _errText(Object e) =>
+      e is AuthApiException ? e.detail : e.toString();
+
+  Future<void> _resolveInvite() async {
+    final token = _inviteController.text.trim();
+    if (token.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final api = ref.read(authApiProvider);
+      final resolved = await api.resolveInvite(token);
+      _inviteToken = token;
+      _resolved = resolved;
+      // OTP darhol so'raladi; staging'da dev_code qaytadi.
+      _devCode = await api.requestOtp(token);
+      if (_devCode != null) _otpController.text = _devCode!;
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _goToStep(1);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = _errText(e);
+      });
+    }
   }
 
-  void _requestOtp() {
-    // TODO: POST /v1/auth/otp — HR bazasidagi telefon raqamiga SMS OTP
-    // yuboriladi (Eskiz.uz). Yuz yolg'iz hech qachon qurilma bog'lamaydi —
-    // OTP majburiy ikkinchi omil (PLAN.md §7).
-    _goToStep(2);
+  Future<void> _resendOtp() async {
+    if (_inviteToken == null) return;
+    setState(() => _busy = true);
+    try {
+      _devCode = await ref.read(authApiProvider).requestOtp(_inviteToken!);
+      if (_devCode != null) _otpController.text = _devCode!;
+    } catch (_) {
+      // jim — foydalanuvchi qayta urinadi
+    }
+    if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _verifyOtp() async {
-    setState(() => _submitting = true);
-    // TODO: POST /v1/auth/otp (verify) — OTP tasdig'i + qurilma-bog'lash:
-    // Keystore/Secure Enclave P-256 kalit, 1 faol qurilma/(org, xodim).
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    setState(() => _submitting = false);
-
-    // Mock: sessiya o'rnatiladi; keyingi navigatsiyani router redirect qiladi.
-    ref.read(sessionProvider.notifier).activate(
-          role: _managerDemo ? UserRole.manager : UserRole.fieldEmployee,
-        );
+  Future<void> _activate() async {
+    final code = _otpController.text.trim();
+    if (code.isEmpty || _inviteToken == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final tokens = ref.read(tokenStoreProvider);
+      final fp = await tokens.deviceFingerprint();
+      final result = await ref.read(authApiProvider).activate(
+            token: _inviteToken!,
+            otpCode: code,
+            deviceFingerprint: fp,
+          );
+      // Token secure-storage'ga — interceptor shu yerdan o'qiydi.
+      await tokens.save(result.accessToken);
+      final role = roleFromToken(result.accessToken);
+      if (!mounted) return;
+      setState(() => _busy = false);
+      // Sessiya o'rnatiladi; router redirect qiladi.
+      ref.read(sessionProvider.notifier).activate(
+            role: role,
+            token: result.accessToken,
+          );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = _errText(e);
+      });
+    }
   }
 
   @override
@@ -85,29 +139,39 @@ class _ActivationScreenState extends ConsumerState<ActivationScreen> {
         child: Column(
           children: [
             LinearProgressIndicator(value: (_step + 1) / _stepCount),
+            if (_error != null)
+              Container(
+                width: double.infinity,
+                color: Theme.of(context).colorScheme.errorContainer,
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  _error!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
             Expanded(
               child: PageView(
                 controller: _pageController,
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _InviteCodeStep(
-                    controller: _inviteCodeController,
-                    onContinue: _submitInviteCode,
-                  ),
-                  _PhoneStep(
-                    controller: _phoneController,
-                    onContinue: _requestOtp,
-                    onBack: () => _goToStep(0),
+                  _InviteStep(
+                    controller: _inviteController,
+                    busy: _busy,
+                    onContinue: _resolveInvite,
                   ),
                   _OtpStep(
                     controller: _otpController,
-                    managerDemo: _managerDemo,
-                    submitting: _submitting,
-                    onManagerDemoChanged: (value) =>
-                        setState(() => _managerDemo = value),
-                    onVerify: _verifyOtp,
-                    onBack: () => _goToStep(1),
+                    busy: _busy,
+                    orgName: _resolved?.orgName,
+                    maskedPhone: _resolved?.maskedPhone,
+                    devCode: _devCode,
+                    onVerify: _activate,
+                    onResend: _resendOtp,
+                    onBack: () => _goToStep(0),
                   ),
+                  const SizedBox.shrink(),
                 ],
               ),
             ),
@@ -118,11 +182,16 @@ class _ActivationScreenState extends ConsumerState<ActivationScreen> {
   }
 }
 
-class _InviteCodeStep extends StatelessWidget {
-  const _InviteCodeStep({required this.controller, required this.onContinue});
+class _InviteStep extends StatelessWidget {
+  const _InviteStep({
+    required this.controller,
+    required this.busy,
+    required this.onContinue,
+  });
 
   final TextEditingController controller;
-  final VoidCallback onContinue;
+  final bool busy;
+  final Future<void> Function() onContinue;
 
   @override
   Widget build(BuildContext context) {
@@ -133,67 +202,31 @@ class _InviteCodeStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // TODO(l10n): yordamchi matnlarni ARB'ga ko'chirish.
-          // TODO: QR-skaner tugmasi va deep-link orqali avtomatik to'ldirish.
           Text(
-            'HR bergan 8 belgili taklif kodini kiriting yoki QR-kodni skanerlang.',
+            'HR bergan taklif-tokenini kiriting (QR/havoladan) yoki qo\'lda joylang.',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
           TextField(
             controller: controller,
-            textCapitalization: TextCapitalization.characters,
-            maxLength: 8,
+            minLines: 1,
+            maxLines: 3,
             decoration: InputDecoration(
               labelText: l10n.inviteCodeLabel,
               border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
-          FilledButton(onPressed: onContinue, child: Text(l10n.nextButton)),
-        ],
-      ),
-    );
-  }
-}
-
-class _PhoneStep extends StatelessWidget {
-  const _PhoneStep({
-    required this.controller,
-    required this.onContinue,
-    required this.onBack,
-  });
-
-  final TextEditingController controller;
-  final VoidCallback onContinue;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'HR bazasidagi telefon raqamingizni tasdiqlang — unga SMS kod yuboriladi.',
-            style: Theme.of(context).textTheme.bodyLarge,
+          FilledButton(
+            onPressed: busy ? null : onContinue,
+            child: busy
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(l10n.nextButton),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: controller,
-            keyboardType: TextInputType.phone,
-            decoration: InputDecoration(
-              labelText: l10n.phoneLabel,
-              hintText: '+998 90 123 45 67',
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(onPressed: onContinue, child: Text(l10n.nextButton)),
-          TextButton(onPressed: onBack, child: Text(l10n.backButton)),
         ],
       ),
     );
@@ -203,18 +236,22 @@ class _PhoneStep extends StatelessWidget {
 class _OtpStep extends StatelessWidget {
   const _OtpStep({
     required this.controller,
-    required this.managerDemo,
-    required this.submitting,
-    required this.onManagerDemoChanged,
+    required this.busy,
+    required this.orgName,
+    required this.maskedPhone,
+    required this.devCode,
     required this.onVerify,
+    required this.onResend,
     required this.onBack,
   });
 
   final TextEditingController controller;
-  final bool managerDemo;
-  final bool submitting;
-  final ValueChanged<bool> onManagerDemoChanged;
-  final VoidCallback onVerify;
+  final bool busy;
+  final String? orgName;
+  final String? maskedPhone;
+  final String? devCode;
+  final Future<void> Function() onVerify;
+  final Future<void> Function() onResend;
   final VoidCallback onBack;
 
   @override
@@ -226,10 +263,26 @@ class _OtpStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (orgName != null)
+            Text(
+              orgName!,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          const SizedBox(height: 8),
           Text(
-            'Telefoningizga yuborilgan 6 xonali kodni kiriting.',
+            maskedPhone != null
+                ? '$maskedPhone raqamiga yuborilgan 6 xonali kodni kiriting.'
+                : 'Telefoningizga yuborilgan 6 xonali kodni kiriting.',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
+          if (devCode != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Test-server kodi: $devCode',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
+            ),
           const SizedBox(height: 16),
           TextField(
             controller: controller,
@@ -241,18 +294,9 @@ class _OtpStep extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          // Skelet uchun demo-tumbler: rahbar rejimini sinash imkoni.
-          // Real ilovada rolni server role-claim'i belgilaydi.
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(l10n.demoManagerToggle),
-            value: managerDemo,
-            onChanged: submitting ? null : onManagerDemoChanged,
-          ),
-          const SizedBox(height: 8),
           FilledButton(
-            onPressed: submitting ? null : onVerify,
-            child: submitting
+            onPressed: busy ? null : onVerify,
+            child: busy
                 ? const SizedBox(
                     height: 20,
                     width: 20,
@@ -261,9 +305,10 @@ class _OtpStep extends StatelessWidget {
                 : Text(l10n.activationTitle),
           ),
           TextButton(
-            onPressed: submitting ? null : onBack,
-            child: Text(l10n.backButton),
+            onPressed: busy ? null : onResend,
+            child: const Text('Kodni qayta yuborish'),
           ),
+          TextButton(onPressed: busy ? null : onBack, child: Text(l10n.backButton)),
         ],
       ),
     );

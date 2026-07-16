@@ -10,47 +10,7 @@ import '../../core/api/api_client.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'checkin_api.dart';
 import 'face_liveness_view.dart';
-
-/// Yaqin obyekt (site) modeli — mock.
-///
-/// TODO: geolocator joriy nuqtasi bo'yicha GET /v1/sites/nearby yoki Drift
-/// keshidan; geofence ENTER trigger'ida obyekt avtotanlanadi (PLAN.md §9).
-class NearbySite {
-  const NearbySite({
-    required this.id,
-    required this.name,
-    required this.distanceMeters,
-  });
-
-  final String id;
-  final String name;
-  final int distanceMeters;
-}
-
-const List<NearbySite> _mockNearbySites = [
-  NearbySite(
-    id: 'site-14',
-    name: 'Obyekt №14 — Sergeli qurilish maydoni',
-    distanceMeters: 42,
-  ),
-  NearbySite(
-    id: 'site-07',
-    name: 'Obyekt №7 — Chilonzor bino',
-    distanceMeters: 310,
-  ),
-  NearbySite(
-    id: 'site-21',
-    name: 'Obyekt №21 — Yunusobod ombor',
-    distanceMeters: 980,
-  ),
-];
-
-NearbySite? _siteById(String? id) {
-  for (final site in _mockNearbySites) {
-    if (site.id == id) return site;
-  }
-  return null;
-}
+import 'sites.dart';
 
 /// CheckinApi provideri — bazaviy URL (api_client.dart) + secure-storage token.
 final checkinApiProvider = Provider<CheckinApi>((ref) {
@@ -66,6 +26,7 @@ class CheckinState {
   const CheckinState({
     this.step = 0,
     this.selectedSiteId,
+    this.selectedSiteName,
     this.selfieJpeg,
     this.livenessPassed = false,
     this.localMatch = false,
@@ -76,7 +37,11 @@ class CheckinState {
   });
 
   final int step;
+
+  /// Tanlangan obyekt UUID'si — null bo'lsa server eng yaqinini avtotanlaydi
+  /// (PLAN.md §9: geofence auto-detect).
   final String? selectedSiteId;
+  final String? selectedSiteName;
 
   /// Olingan selfie JPEG baytlari (liveness o'tgach).
   final Uint8List? selfieJpeg;
@@ -93,7 +58,6 @@ class CheckinState {
 
   CheckinState copyWith({
     int? step,
-    String? selectedSiteId,
     Uint8List? selfieJpeg,
     bool? livenessPassed,
     bool? localMatch,
@@ -104,7 +68,8 @@ class CheckinState {
   }) {
     return CheckinState(
       step: step ?? this.step,
-      selectedSiteId: selectedSiteId ?? this.selectedSiteId,
+      selectedSiteId: selectedSiteId,
+      selectedSiteName: selectedSiteName,
       selfieJpeg: selfieJpeg ?? this.selfieJpeg,
       livenessPassed: livenessPassed ?? this.livenessPassed,
       localMatch: localMatch ?? this.localMatch,
@@ -120,8 +85,19 @@ class CheckinController extends Notifier<CheckinState> {
   @override
   CheckinState build() => const CheckinState();
 
-  void selectSite(String siteId) =>
-      state = state.copyWith(selectedSiteId: siteId);
+  /// Obyekt tanlash. id=null -> "Avtomatik" (server eng yaqinini tanlaydi).
+  /// copyWith null'ni farqlay olmagani uchun state to'g'ridan quriladi.
+  void selectSite(String? siteId, String? siteName) {
+    state = CheckinState(
+      step: state.step,
+      selectedSiteId: siteId,
+      selectedSiteName: siteName,
+      selfieJpeg: state.selfieJpeg,
+      livenessPassed: state.livenessPassed,
+      localMatch: state.localMatch,
+      comment: state.comment,
+    );
+  }
 
   /// Qurilmadagi ML Kit liveness natijasini (selfie + hukm) saqlaydi.
   void setFaceResult(FaceCaptureResult r) {
@@ -243,7 +219,7 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
 
     switch (state.step) {
       case 0:
-        if (state.selectedSiteId != null) controller.goToStep(1);
+        controller.goToStep(1); // obyekt ixtiyoriy (null -> server avtotanlaydi)
       case 1:
         if (state.faceCaptured) controller.goToStep(2);
       case 2:
@@ -294,7 +270,7 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
           final isLast = state.step == 3;
           final submitted = state.result != null;
           final canContinue = switch (state.step) {
-            0 => state.selectedSiteId != null,
+            0 => true, // obyekt ixtiyoriy
             1 => state.faceCaptured,
             _ => true,
           };
@@ -378,30 +354,57 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
   }
 }
 
-class _SiteStep extends StatelessWidget {
+class _SiteStep extends ConsumerWidget {
   const _SiteStep({required this.selectedSiteId, required this.onSelect});
 
   final String? selectedSiteId;
-  final ValueChanged<String> onSelect;
+
+  /// (id, name) — id=null "Avtomatik" (server eng yaqinini tanlaydi).
+  final void Function(String? id, String? name) onSelect;
 
   @override
-  Widget build(BuildContext context) {
-    // >150 m uzoqlikdagi obyekt tanlansa ham ruxsat, lekin oldindan
-    // bayroqlanadi (PLAN.md §9 — trigger B).
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sitesAsync = ref.watch(sitesProvider);
     return Column(
       children: [
-        for (final site in _mockNearbySites)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.location_on_outlined),
-            title: Text(site.name),
-            subtitle: Text('${site.distanceMeters} m'),
-            trailing: site.id == selectedSiteId
-                ? const Icon(Icons.check_circle)
-                : null,
-            selected: site.id == selectedSiteId,
-            onTap: () => onSelect(site.id),
+        // Avtomatik: server GPS bo'yicha eng yaqin obyektni biriktiradi (PLAN.md §9).
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.my_location),
+          title: const Text('Avtomatik (eng yaqin obyekt)'),
+          subtitle: const Text('Server joriy joylashuvga qarab tanlaydi'),
+          trailing:
+              selectedSiteId == null ? const Icon(Icons.check_circle) : null,
+          selected: selectedSiteId == null,
+          onTap: () => onSelect(null, null),
+        ),
+        const Divider(),
+        sitesAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.all(16),
+            child: CircularProgressIndicator(),
           ),
+          error: (e, _) => Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text('Obyektlarni yuklab bo\'lmadi: $e'),
+          ),
+          data: (sites) => Column(
+            children: [
+              for (final site in sites)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(site.name),
+                  subtitle: Text('radius ${site.radiusM} m'),
+                  trailing: site.id == selectedSiteId
+                      ? const Icon(Icons.check_circle)
+                      : null,
+                  selected: site.id == selectedSiteId,
+                  onTap: () => onSelect(site.id, site.name),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -490,13 +493,13 @@ class _SummaryStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final site = _siteById(state.selectedSiteId);
+    final siteLabel = state.selectedSiteName ?? 'Avtomatik (eng yaqin)';
     final result = state.result;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('${l10n.checkinStepSite}: ${site?.name ?? '—'}'),
+        Text('${l10n.checkinStepSite}: $siteLabel'),
         const SizedBox(height: 4),
         Text(
           '${l10n.checkinStepFace}: '

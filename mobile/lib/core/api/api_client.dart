@@ -2,6 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../../features/activation/auth_api.dart';
+import '../../features/checkin/checkin_api.dart' show generateUuidV4;
+
 /// API bazaviy manzili — muhit bo'yicha `--dart-define=API_BASE_URL=...` orqali
 /// qayta belgilanadi. Standart qiymat — jonli staging backend. Presigned selfie
 /// PUT URL'i serverdan ochiq MinIO xost bilan qaytadi (89.117.49.131:9010), shu
@@ -22,12 +25,24 @@ class TokenStore {
   final FlutterSecureStorage _storage;
 
   static const String _tokenKey = 'auth_token';
+  static const String _deviceKey = 'device_fingerprint';
 
   Future<String?> read() => _storage.read(key: _tokenKey);
 
   Future<void> save(String token) => _storage.write(key: _tokenKey, value: token);
 
   Future<void> clear() => _storage.delete(key: _tokenKey);
+
+  /// Barqaror qurilma-fingerprint (o'rnatishga bog'langan). 1 faol qurilma/
+  /// (org, xodim) siyosati shunga tayanadi (PLAN.md §7). Yo'q bo'lsa yaratiladi.
+  /// TODO(v2): Keystore/Secure Enclave P-256 kalit-jufti + attestation.
+  Future<String> deviceFingerprint() async {
+    final existing = await _storage.read(key: _deviceKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final fp = generateUuidV4();
+    await _storage.write(key: _deviceKey, value: fp);
+    return fp;
+  }
 }
 
 final tokenStoreProvider = Provider<TokenStore>((ref) {
@@ -57,6 +72,13 @@ class AuthInterceptor extends Interceptor {
   // TODO: onError'da 401 -> token yangilash yoki sessiyani tozalab
   // /activation'ga qaytarish; oflayn xatolarda Drift navbatiga yozish.
 }
+
+/// Aktivatsiya API provideri (invite/OTP/activate).
+final authApiProvider = Provider<AuthApi>((ref) {
+  final api = AuthApi(baseUrl: kApiBaseUrl);
+  ref.onDispose(api.close);
+  return api;
+});
 
 /// Umumiy dio mijozi.
 final dioProvider = Provider<Dio>((ref) {
