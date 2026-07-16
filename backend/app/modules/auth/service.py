@@ -118,6 +118,7 @@ async def activate(
     device_platform: str,
     device_fingerprint: str,
     device_model: str | None = None,
+    device_pubkey: str | None = None,
 ) -> dict:
     """Invite + OTP → qurilma-bog'lash → JWT juftligi.
     1 faol qurilma/(org, xodim): yangi bog'lash eskilarini bekor qiladi (reja §7.5)."""
@@ -164,6 +165,7 @@ async def activate(
             platform=device_platform,
             fingerprint=device_fingerprint,
             model=device_model,
+            pubkey=device_pubkey,
         )
         ts.add(device)
         await ts.flush()

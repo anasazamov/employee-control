@@ -40,6 +40,9 @@ class Checkin(Base, TenantMixin):
     server_face_score: Mapped[float | None] = mapped_column(Float)
     server_spoof_score: Mapped[float | None] = mapped_column(Float)
     device_integrity: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    risk_score: Mapped[int] = mapped_column(
+        types.Integer, nullable=False, server_default="0"
+    )
     verdict: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
     verdict_reasons: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)))
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(

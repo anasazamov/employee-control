@@ -63,7 +63,8 @@ async def test_cross_tenant_update_invisible(seed):
 
 
 async def test_checkins_append_only(seed, admin_session):
-    """Dalil-jadval: app_user uchun UPDATE granti yo'q — permission denied."""
+    """Dalil-ustunlar (lat/ts/user...) app_user uchun QULFLANGAN — permission denied.
+    (0002'dan beri lifecycle-ustunlar — verdict, comment... — ochiq; dalillar emas.)"""
     checkin_id = uuid.uuid4()
     admin_session.add(
         Checkin(
@@ -84,7 +85,7 @@ async def test_checkins_append_only(seed, admin_session):
     with pytest.raises((DBAPIError, ProgrammingError)) as exc_info:
         async with tenant_session(seed.org1.org_id) as s:
             await s.execute(
-                update(Checkin).where(Checkin.id == checkin_id).values(comment="tahrir")
+                update(Checkin).where(Checkin.id == checkin_id).values(lat=0.0)
             )
     assert "permission denied" in str(exc_info.value).lower()
 

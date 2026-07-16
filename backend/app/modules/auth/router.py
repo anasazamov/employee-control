@@ -49,6 +49,9 @@ class DeviceIn(BaseModel):
     platform: str
     fingerprint: str
     model: str | None = None
+    # Keystore/Secure Enclave'da yaratilgan P-256 ochiq kalit (PEM) —
+    # check-in imzolarini tekshirish uchun (reja §7.5, §9)
+    pubkey: str | None = None
 
 
 class ActivateIn(BaseModel):
@@ -66,6 +69,7 @@ async def activate(body: ActivateIn):
             device_platform=body.device.platform,
             device_fingerprint=body.device.fingerprint,
             device_model=body.device.model,
+            device_pubkey=body.device.pubkey,
         )
     except service.AuthError as e:
         raise HTTPException(status_code=400, detail=e.detail) from e

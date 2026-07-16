@@ -98,12 +98,18 @@ def seed() -> Seed:
     return asyncio.run(_seed())
 
 
-def make_access_token(org: SeededOrg, role: str = "org_admin") -> str:
-    return issue_token(user_id=org.owner_id, org_id=org.org_id, role=role, kind="access")
+def make_access_token(
+    org: SeededOrg, role: str = "org_admin", device_id: uuid.UUID | None = None
+) -> str:
+    return issue_token(
+        user_id=org.owner_id, org_id=org.org_id, role=role, kind="access", device_id=device_id
+    )
 
 
-def auth_header(org: SeededOrg, role: str = "org_admin") -> dict[str, str]:
-    return {"Authorization": f"Bearer {make_access_token(org, role)}"}
+def auth_header(
+    org: SeededOrg, role: str = "org_admin", device_id: uuid.UUID | None = None
+) -> dict[str, str]:
+    return {"Authorization": f"Bearer {make_access_token(org, role, device_id)}"}
 
 
 @pytest.fixture(autouse=True)

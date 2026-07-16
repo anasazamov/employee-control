@@ -5,7 +5,9 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.models import User
 from app.modules.auth.router import router as auth_router
+from app.modules.checkins.router import router as checkins_router
 from app.modules.rbac.deps import TenantContext, get_context
+from app.modules.shifts.router import router as shifts_router
 from app.modules.sites.router import router as sites_router
 from app.modules.tracking.router import router as tracking_router
 from app.modules.tracking.ws import router as ws_router
@@ -26,6 +28,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(sites_router)
     app.include_router(tracking_router)
+    app.include_router(checkins_router)
+    app.include_router(shifts_router)
     app.include_router(ws_router)
 
     @app.get("/health")
