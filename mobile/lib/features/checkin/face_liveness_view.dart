@@ -115,8 +115,10 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
         front,
         ResolutionPreset.medium,
         enableAudio: false,
+        // Android: yuv420 (3 plane) so'raymiz va o'zimiz tekis NV21 quramiz —
+        // camerax'ning nv21'i padding'li bo'lib ML Kit'ni NPE qildiradi (past).
         imageFormatGroup: Platform.isAndroid
-            ? ImageFormatGroup.nv21
+            ? ImageFormatGroup.yuv420
             : ImageFormatGroup.bgra8888,
       );
       await controller.initialize();
@@ -229,23 +231,68 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
     }
     if (rotation == null) return null;
 
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null) return null;
-    if (Platform.isAndroid && format != InputImageFormat.nv21) return null;
-    if (Platform.isIOS && format != InputImageFormat.bgra8888) return null;
+    if (Platform.isIOS) {
+      final format = InputImageFormatValue.fromRawValue(image.format.raw);
+      if (format != InputImageFormat.bgra8888) return null;
+      if (image.planes.length != 1) return null;
+      final plane = image.planes.first;
+      return InputImage.fromBytes(
+        bytes: plane.bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation,
+          format: InputImageFormat.bgra8888,
+          bytesPerRow: plane.bytesPerRow,
+        ),
+      );
+    }
 
-    if (image.planes.length != 1) return null;
-    final plane = image.planes.first;
-
+    // Android: yuv420 (3 plane) -> tekis-joylashgan NV21 (stride-padding olib
+    // tashlanadi). google_mlkit_commons bytesPerRow'ni O'QIMAYDI va tekis NV21
+    // (uzunlik w*h*3/2, stride==width) kutadi — padding'li bufer NPE beradi.
+    if (image.planes.length < 3) return null;
+    final nv21 = _yuv420ToNv21(image);
     return InputImage.fromBytes(
-      bytes: plane.bytes,
+      bytes: nv21,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation,
-        format: format,
-        bytesPerRow: plane.bytesPerRow,
+        format: InputImageFormat.nv21,
+        bytesPerRow: image.width,
       ),
     );
+  }
+
+  /// YUV_420_888 (3 plane, stride-padding bo'lishi mumkin) -> tekis NV21 bayt-bufer.
+  /// NV21 = to'liq Y tekisligi, so'ng V,U,V,U... interleaved (chorak o'lchamli).
+  Uint8List _yuv420ToNv21(CameraImage image) {
+    final int width = image.width;
+    final int height = image.height;
+    final yP = image.planes[0];
+    final uP = image.planes[1];
+    final vP = image.planes[2];
+
+    final out = Uint8List(width * height + (width * height ~/ 2));
+    int dst = 0;
+
+    // Y: har qatorni width bayt qilib ko'chiramiz (qatordagi padding tashlanadi).
+    final int yStride = yP.bytesPerRow;
+    for (int r = 0; r < height; r++) {
+      out.setRange(dst, dst + width, yP.bytes, r * yStride);
+      dst += width;
+    }
+
+    // VU interleaved (NV21 tartibi: V, U).
+    final int uvStride = uP.bytesPerRow;
+    final int uvPix = uP.bytesPerPixel ?? 1;
+    for (int r = 0; r < height ~/ 2; r++) {
+      for (int c = 0; c < width ~/ 2; c++) {
+        final int i = r * uvStride + c * uvPix;
+        out[dst++] = vP.bytes[i]; // V
+        out[dst++] = uP.bytes[i]; // U
+      }
+    }
+    return out;
   }
 
   Future<void> _capture() async {

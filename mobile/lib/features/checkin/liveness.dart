@@ -56,10 +56,11 @@ class FaceQuality {
   const FaceQuality._();
 
   /// Yuz ramkasi kadr qisqa tomonining kamida shu ulushini egallashi kerak.
-  static const double minFaceWidthRatio = 0.28;
+  /// Yumshoqroq — turli qurilma/masofa uchun (aks holda darvoza o'tmaydi).
+  static const double minFaceWidthRatio = 0.20;
 
   /// Ko'z ochiqligi minimal ehtimoli (classification bo'lganda tekshiriladi).
-  static const double minEyeOpen = 0.4;
+  static const double minEyeOpen = 0.3;
 
   static bool passes(FaceSignals s) {
     if (s.faceCount != 1) return false;
@@ -87,12 +88,14 @@ class ChallengeTracker {
   bool _passed = false;
   bool get passed => _passed;
 
-  // Chegaralar.
-  static const double _eyeOpenHi = 0.6;
+  // Chegaralar (yumshoqroq — dalada ishonchli o'tishi uchun).
+  static const double _eyeOpenHi = 0.55;
   static const double _eyeClosedLo = 0.35;
-  static const double _smileHi = 0.75;
-  static const double _smileLo = 0.35;
-  static const double _yawDeg = 22;
+  static const double _smileHi = 0.6;
+  static const double _smileLo = 0.4;
+  // Front kamerada headYaw belgisi qurilmaga bog'liq (oyna-aks) — shuning uchun
+  // burilishni IKKI tomonlama qabul qilamiz (|yaw| > chegara).
+  static const double _yawDeg = 16;
 
   /// Yangi kadrni qayta ishlaydi. Challenge shu kadrda bajarilsa `true`.
   bool feed(FaceSignals s) {
@@ -112,14 +115,11 @@ class ChallengeTracker {
         if (_armed && sm > _smileHi) return _pass();
         return false;
       case LivenessChallenge.turnLeft:
-        final y = s.headYaw;
-        if (y == null) return false;
-        if (y > _yawDeg) return _pass();
-        return false;
       case LivenessChallenge.turnRight:
+        // Ikki tomonlama: boshni istalgan tomonga burish yetarli (belgi noaniq).
         final y = s.headYaw;
         if (y == null) return false;
-        if (y < -_yawDeg) return _pass();
+        if (y.abs() > _yawDeg) return _pass();
         return false;
     }
   }
