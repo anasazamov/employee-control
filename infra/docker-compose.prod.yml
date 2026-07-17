@@ -50,7 +50,14 @@ services:
     restart: "no"
 
   api:
-    build: ../backend
+    build:
+      context: ../backend
+      args:
+        # Haqiqiy yuz-tanish (insightface) shu servisga o'rnatiladi
+        INSTALL_FACE: ${INSTALL_FACE:-false}
+    # RAM-himoya: insightface og'ir; limit hostni (boshqa loyihalarni) OOM'dan saqlaydi —
+    # limit oshsa faqat api restart bo'ladi. FACE_BACKEND=stub bo'lsa kamroq kerak.
+    mem_limit: ${API_MEM_LIMIT:-2g}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
     environment:
       # staging/test serverda DEBUG=true (OTP dev-kodi qaytadi, SMS'siz test uchun);

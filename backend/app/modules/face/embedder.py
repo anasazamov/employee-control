@@ -72,7 +72,9 @@ class InsightFaceEmbedder:
         self._app = FaceAnalysis(
             name=s.face_model_pack, providers=["CPUExecutionProvider"]
         )
-        self._app.prepare(ctx_id=-1, det_size=(640, 640))
+        # 320px detektsiya — RAM/CPU tejaydi; selfie'da bitta katta yuz uchun yetarli.
+        # Cheklangan server uchun; kattaroq hostda 640 aniqroq (config'ga chiqarish mumkin).
+        self._app.prepare(ctx_id=-1, det_size=(320, 320))
 
     def embed(self, image_bytes: bytes) -> list[float]:
         import cv2
