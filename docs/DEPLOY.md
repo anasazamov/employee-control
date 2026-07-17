@@ -32,20 +32,34 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 Migratsiya `migrate` servisi orqali avtomatik yuriladi (RLS + hypertable).
 
-## Yuz-backend (stub → insightface)
+## Yuz-backend (insightface — staging'da YONIQ)
 
-Hozir `FACE_BACKEND=stub` (yengil, deterministik — pipeline'ni isbotlaydi, lekin
-HAQIQIY yuz-tanish EMAS). Haqiqiy tekshiruv uchun `.env.prod`da `FACE_BACKEND=insightface`
-qilinadi — LEKIN:
+Staging'da `FACE_BACKEND=insightface` (haqiqiy ArcFace yuz-tanish) yoqilgan va
+tekshirilgan: bir odamning turli fotolari mos (cosine ~0.72 → verified), boshqa
+odam rad (~ -0.03 → rejected). Model: `buffalo_s`, det_size 320 (RAM tejash).
 
-- `insightface` + `onnxruntime` + `opencv` og'ir (~1GB dep, RAM zarur). Joriy test-server
-  3.8GB RAM va 9 boshqa loyiha bilan band — insightface OOM xavfi bor.
-- Prod'da: kamida 2GB bo'sh RAM ajratilgan alohida yuz-worker (Celery `face` queue) tavsiya.
-- Model og'irliklari (`buffalo_*`) **notijorat-litsenziyada** — tijorat-deploy oldidan
-  litsenziyalangan yoki o'z-o'qitilgan model bilan almashtiring (pipeline model-agnostik).
+**Yoqish (`.env.prod`):**
+```
+FACE_BACKEND=insightface
+FACE_MODEL_PACK=buffalo_s
+INSTALL_FACE=true     # api image insightface bilan build qilinadi
+API_MEM_LIMIT=2g      # host himoyasi — limit oshsa faqat api restart
+```
+So'ng: `docker compose -f docker-compose.prod.yml --env-file .env.prod build api && ... up -d api`.
 
-Backend image'ga insightface qo'shish uchun `backend/pyproject.toml`ga
-`insightface`, `onnxruntime`, `opencv-python-headless` qo'shiladi va image qayta build qilinadi.
+**RAM realligi:** api-konteyner model yuklangach ~650MB (2GB limit ichida). Joriy
+3.8GB umumiy serverda 9 boshqa loyiha bilan barqaror ishladi, lekin bo'sh RAM kam
+(~150-200MB). Prod'da: **alohida yuz-worker** (Celery `face` queue, 2GB+ ajratilgan)
+tavsiya — api'ni og'ir inference'dan ajratadi.
+
+**Model download:** birinchi yuz-so'rovda `buffalo_s` (~50MB) yuklanadi (~10s), keyin
+lru_cache'da qoladi. `libxcb1`/`libgl1` va boshqa opencv runtime-libs Dockerfile'da.
+
+**Litsenziya:** `buffalo_*` og'irliklari **notijorat** — tijorat-deploy oldidan
+litsenziyalangan yoki o'z-o'qitilgan model bilan almashtiring (pipeline model-agnostik,
+`model_ver` maydoni shuning uchun).
+
+**Stub'ga qaytarish** (RAM muammosi bo'lsa): `.env.prod`da `FACE_BACKEND=stub` + api restart.
 
 ## Portlar xulosasi
 
