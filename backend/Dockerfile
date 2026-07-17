@@ -16,7 +16,8 @@ COPY alembic ./alembic
 RUN if [ "$INSTALL_FACE" = "true" ]; then \
         apt-get update && \
         apt-get install -y --no-install-recommends \
-            build-essential cmake libgomp1 libglib2.0-0 && \
+            build-essential cmake \
+            libgomp1 libglib2.0-0 libgl1 libxcb1 libxext6 libsm6 libxrender1 && \
         rm -rf /var/lib/apt/lists/* && \
         pip install --no-cache-dir ".[face]" ; \
     else \
