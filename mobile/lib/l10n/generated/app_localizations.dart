@@ -104,6 +104,30 @@ abstract class AppLocalizations {
   /// **'Xodimlar nazorati'**
   String get appTitle;
 
+  /// No description provided for @loginTitle.
+  ///
+  /// In uz, this message translates to:
+  /// **'Kirish'**
+  String get loginTitle;
+
+  /// No description provided for @loginButton.
+  ///
+  /// In uz, this message translates to:
+  /// **'Kirish'**
+  String get loginButton;
+
+  /// No description provided for @usernameLabel.
+  ///
+  /// In uz, this message translates to:
+  /// **'Foydalanuvchi nomi'**
+  String get usernameLabel;
+
+  /// No description provided for @passwordLabel.
+  ///
+  /// In uz, this message translates to:
+  /// **'Parol'**
+  String get passwordLabel;
+
   /// No description provided for @activationTitle.
   ///
   /// In uz, this message translates to:

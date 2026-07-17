@@ -12,6 +12,18 @@ class AppLocalizationsUz extends AppLocalizations {
   String get appTitle => 'Xodimlar nazorati';
 
   @override
+  String get loginTitle => 'Kirish';
+
+  @override
+  String get loginButton => 'Kirish';
+
+  @override
+  String get usernameLabel => 'Foydalanuvchi nomi';
+
+  @override
+  String get passwordLabel => 'Parol';
+
+  @override
   String get activationTitle => 'Faollashtirish';
 
   @override

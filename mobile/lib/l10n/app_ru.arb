@@ -1,6 +1,10 @@
 {
   "@@locale": "ru",
   "appTitle": "Контроль сотрудников",
+  "loginTitle": "Вход",
+  "loginButton": "Войти",
+  "usernameLabel": "Имя пользователя",
+  "passwordLabel": "Пароль",
   "activationTitle": "Активация",
   "inviteCodeLabel": "Код приглашения",
   "phoneLabel": "Номер телефона",

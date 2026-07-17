@@ -38,6 +38,24 @@ class AuthApi {
     }
   }
 
+  /// POST /v1/auth/login — username/parol -> JWT + user{role}. Rol UI'ni belgilaydi.
+  Future<ActivationResult> login({
+    required String username,
+    required String password,
+  }) async {
+    final j = await _post('login', '/v1/auth/login', {
+      'username': username,
+      'password': password,
+    });
+    final user = (j['user'] as Map<String, dynamic>?) ?? const {};
+    return ActivationResult(
+      accessToken: j['access_token'] as String,
+      refreshToken: j['refresh_token'] as String?,
+      role: user['role'] as String?,
+      orgName: user['org_name'] as String? ?? user['full_name'] as String?,
+    );
+  }
+
   /// POST /v1/auth/invites/resolve — token -> {org_id, org_name, masked_phone}.
   Future<ResolvedInvite> resolveInvite(String token) async {
     final j = await _post('invites/resolve', '/v1/auth/invites/resolve', {'token': token});

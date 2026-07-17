@@ -12,6 +12,18 @@ class AppLocalizationsRu extends AppLocalizations {
   String get appTitle => 'Контроль сотрудников';
 
   @override
+  String get loginTitle => 'Вход';
+
+  @override
+  String get loginButton => 'Войти';
+
+  @override
+  String get usernameLabel => 'Имя пользователя';
+
+  @override
+  String get passwordLabel => 'Пароль';
+
+  @override
   String get activationTitle => 'Активация';
 
   @override

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/activation/activation_screen.dart';
+import '../features/activation/login_screen.dart';
 import '../features/checkin/checkin_screen.dart';
 import '../features/history/history_screen.dart';
 import '../features/home/home_screen.dart';
@@ -33,9 +33,8 @@ class SessionController extends Notifier<Session?> {
   @override
   Session? build() => null;
 
-  /// Mock aktivatsiya — aktivatsiya oqimi tugaganda chaqiriladi.
-  /// TODO: real oqim — POST /v1/auth/invite + POST /v1/auth/otp (PLAN.md §7).
-  void activate({required UserRole role, String token = 'mock-token'}) {
+  /// Login/aktivatsiya muvaffaqiyatli tugaganda chaqiriladi (real token bilan).
+  void activate({required UserRole role, required String token}) {
     state = Session(role: role, token: token);
   }
 
@@ -57,12 +56,12 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: refresh,
     redirect: (context, state) {
       final session = ref.read(sessionProvider);
-      final onActivation = state.matchedLocation == '/activation';
+      final onLogin = state.matchedLocation == '/login';
 
       if (session == null) {
-        return onActivation ? null : '/activation';
+        return onLogin ? null : '/login';
       }
-      if (onActivation) {
+      if (onLogin) {
         return session.role == UserRole.manager ? '/m/map' : '/home';
       }
 
@@ -77,10 +76,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      // Shell'lardan tashqarida — aktivatsiya (PLAN.md §7).
+      // Shell'lardan tashqarida — username/parol login.
       GoRoute(
-        path: '/activation',
-        builder: (context, state) => const ActivationScreen(),
+        path: '/login',
+        builder: (context, state) => const LoginScreen(),
       ),
 
       // Xodim rejimi shell'i (pastki navigatsiya).

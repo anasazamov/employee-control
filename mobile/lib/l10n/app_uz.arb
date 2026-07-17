@@ -1,6 +1,10 @@
 {
   "@@locale": "uz",
   "appTitle": "Xodimlar nazorati",
+  "loginTitle": "Kirish",
+  "loginButton": "Kirish",
+  "usernameLabel": "Foydalanuvchi nomi",
+  "passwordLabel": "Parol",
   "activationTitle": "Faollashtirish",
   "inviteCodeLabel": "Taklif kodi",
   "phoneLabel": "Telefon raqami",
