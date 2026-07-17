@@ -29,6 +29,14 @@ class UserIn(BaseModel):
     role: str = Field(default="field_employee", pattern="^(org_admin|hr|dept_head|field_employee)$")
     department_id: uuid.UUID | None = None
     employee_no: str | None = None
+    # Username/parol login uchun (ixtiyoriy — yuz-first xodimlar uchun bo'lmasligi mumkin)
+    username: str | None = Field(default=None, min_length=3, max_length=128)
+    password: str | None = Field(default=None, min_length=6, max_length=128)
+
+
+class SetPasswordIn(BaseModel):
+    username: str = Field(min_length=3, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
 
 
 class UserPatch(BaseModel):
@@ -91,7 +99,42 @@ async def create_user(
             await s.flush()
         except IntegrityError as e:
             raise HTTPException(409, "bu telefon raqami tashkilotda allaqachon mavjud") from e
+        # Username/parol berilgan bo'lsa — login-kredensiali (global-unikal username)
+        if body.username and body.password:
+            from app.modules.auth.login import set_credential
+            from app.modules.auth.service import AuthError
+
+            try:
+                await set_credential(
+                    s, org_id=ctx.org_id, user_id=user.id,
+                    username=body.username, password=body.password,
+                )
+            except AuthError as e:
+                raise HTTPException(409, e.detail) from e
         return _out(user)
+
+
+@router.post("/{user_id}/set-password", status_code=204)
+async def set_password(
+    user_id: uuid.UUID,
+    body: SetPasswordIn,
+    ctx: TenantContext = Depends(require_role("org_admin", "hr")),
+):
+    """Xodimga username/parol o'rnatish yoki yangilash (HR)."""
+    from app.modules.auth.login import set_credential
+    from app.modules.auth.service import AuthError
+
+    async with ctx.session() as s:
+        user = await s.get(User, user_id)
+        if user is None:
+            raise HTTPException(404, "xodim topilmadi")
+        try:
+            await set_credential(
+                s, org_id=ctx.org_id, user_id=user_id,
+                username=body.username, password=body.password,
+            )
+        except AuthError as e:
+            raise HTTPException(409, e.detail) from e
 
 
 @router.get("", response_model=list[UserOut])

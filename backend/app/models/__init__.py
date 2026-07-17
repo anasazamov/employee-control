@@ -1,6 +1,7 @@
 from app.models.audit import AccessLog, AuditLog, Consent
 from app.models.base import Base
 from app.models.checkins import Checkin, FaceEmbedding
+from app.models.credentials import Credential
 from app.models.org import Department, Device, Shift, User, UserScopeGrant
 from app.models.platform import BillingEvent, UsageSnapshot
 from app.models.sites import Assignment, Site, SitePresence, SiteType
@@ -15,6 +16,7 @@ __all__ = [
     "BillingEvent",
     "Checkin",
     "Consent",
+    "Credential",
     "Department",
     "Device",
     "FaceEmbedding",

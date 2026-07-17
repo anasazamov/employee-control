@@ -71,7 +71,14 @@ async def list_tenants() -> list[TenantRow]:
 
 
 async def provision(
-    *, name: str, slug: str, owner_phone: str, owner_name: str, plan: str
+    *,
+    name: str,
+    slug: str,
+    owner_phone: str,
+    owner_name: str,
+    plan: str,
+    owner_username: str | None = None,
+    owner_password: str | None = None,
 ) -> dict:
     async with platform_session() as s:
         r = await provision_tenant(
@@ -79,12 +86,21 @@ async def provision(
         )
         if r.created and plan != "trial":
             r.org.plan = plan
+        # Org-admin username/parol (login uchun)
+        if r.created and owner_username and owner_password:
+            from app.modules.auth.login import set_credential
+
+            await set_credential(
+                s, org_id=r.org.id, user_id=r.owner.id,
+                username=owner_username, password=owner_password,
+            )
         return {
             "org_id": str(r.org.id),
             "slug": r.org.slug,
             "created": r.created,
             "invite_token": r.invite_token,
             "invite_code": r.invite_code,
+            "owner_username": owner_username if r.created else None,
         }
 
 

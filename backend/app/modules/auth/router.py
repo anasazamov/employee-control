@@ -1,9 +1,40 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.modules.auth import login as login_mod
 from app.modules.auth import service
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
+
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class LoginOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    user: dict
+
+
+@router.post("/login", response_model=LoginOut)
+async def login(body: LoginIn):
+    """Username/parol login → JWT. Rol JWT'da; ilova rolga qarab UI ko'rsatadi."""
+    try:
+        r = await login_mod.login(username=body.username, password=body.password)
+    except service.AuthError as e:
+        raise HTTPException(status_code=401, detail=e.detail) from e
+    return LoginOut(
+        access_token=r.access_token,
+        refresh_token=r.refresh_token,
+        user={
+            "id": r.user_id,
+            "org_id": r.org_id,
+            "role": r.role,
+            "full_name": r.full_name,
+        },
+    )
 
 
 class InviteResolveIn(BaseModel):

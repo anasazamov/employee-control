@@ -45,6 +45,9 @@ class ProvisionIn(BaseModel):
     owner_phone: str = Field(min_length=5)
     owner_name: str = "Org Admin"
     plan: str = Field(default="trial", pattern="^(trial|basic|pro|enterprise)$")
+    # Org-admin login-kredensiali (ixtiyoriy)
+    owner_username: str | None = Field(default=None, min_length=3, max_length=128)
+    owner_password: str | None = Field(default=None, min_length=6, max_length=128)
 
 
 @router.post("/tenants", dependencies=[Depends(require_platform_key)], status_code=201)
@@ -55,6 +58,8 @@ async def provision_tenant(body: ProvisionIn):
         owner_phone=body.owner_phone,
         owner_name=body.owner_name,
         plan=body.plan,
+        owner_username=body.owner_username,
+        owner_password=body.owner_password,
     )
 
 
