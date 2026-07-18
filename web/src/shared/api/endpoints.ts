@@ -11,6 +11,7 @@ import type {
   InviteResolveResponse,
   InviteResult,
   LastLocationsResponse,
+  LoginResponse,
   MeResponse,
   Occupant,
   OtpRequestResponse,
@@ -25,6 +26,8 @@ import type {
 
 // --- Auth ---
 export const authApi = {
+  login: (input: { username: string; password: string }) =>
+    api.post<LoginResponse>('/v1/auth/login', input).then((r) => r.data),
   resolveInvite: (token: string) =>
     api
       .post<InviteResolveResponse>('/v1/auth/invites/resolve', { token })

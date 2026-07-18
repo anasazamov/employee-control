@@ -36,8 +36,14 @@ export const uz = {
   },
   login: {
     title: 'Kirish',
+    modePassword: 'Login/parol',
     modeToken: 'Token',
     modeOtp: 'Taklif + OTP',
+    username: 'Foydalanuvchi nomi',
+    password: 'Parol',
+    usernameRequired: 'Foydalanuvchi nomini kiriting',
+    passwordRequired: 'Parolni kiriting',
+    loginFailed: "Login yoki parol noto'g'ri",
     tokenHint:
       "Provision-tenant CLI yoki activate javobidan olingan access token'ni joylashtiring.",
     accessToken: 'Access token',

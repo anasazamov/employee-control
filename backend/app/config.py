@@ -8,6 +8,12 @@ class Settings(BaseSettings):
 
     debug: bool = True
 
+    # CORS — web admin brauzeridan API'ga ulanish uchun ruxsat etilgan origin(lar),
+    # vergul bilan ajratilgan. Prod'da .env (EC_CORS_ORIGINS) orqali web admin
+    # domeni beriladi. Bo'sh qiymat = CORS middleware umuman qo'shilmaydi.
+    # `debug`dan mustaqil — staging (debug=false) da ham web admin ishlashi kerak.
+    cors_origins: str = "http://localhost:5173"
+
     # Runtime ulanish — RLS'ni chetlab o'tolmaydigan app_user roli bilan.
     # Dev-portlar 5433/6380 (docker-compose.dev.yml) — 5432/6379 boshqa loyihalar bilan
     # to'qnashmasligi uchun.
@@ -50,6 +56,11 @@ class Settings(BaseSettings):
     face_identify_margin: float = 0.10  # top1 − top2
     # enrollment-dedup: shu chegaradan yuqori o'xshashlik → bloklash
     face_dedup_threshold: float = 0.55
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """`cors_origins`ni ro'yxatga aylantiradi (bo'sh elementlar tashlanadi)."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 @lru_cache

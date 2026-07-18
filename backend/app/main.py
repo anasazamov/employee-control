@@ -23,10 +23,13 @@ from app.modules.tracking.ws import router as ws_router
 def create_app() -> FastAPI:
     app = FastAPI(title="Employee Control API", version="0.1.0")
 
-    if get_settings().debug:
+    # CORS — sozlanadigan origin ro'yxati (EC_CORS_ORIGINS). `debug`dan mustaqil,
+    # shunda staging/prod (debug=false) da ham web admin brauzeri ulanadi.
+    cors_origins = get_settings().cors_origin_list
+    if cors_origins:
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["http://localhost:5173"],
+            allow_origins=cors_origins,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],

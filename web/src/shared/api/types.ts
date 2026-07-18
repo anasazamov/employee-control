@@ -36,6 +36,19 @@ export interface ActivateResponse {
   user: ActivateUser
 }
 
+export interface LoginUser {
+  id: string
+  role: Role
+  org_id: string
+  full_name: string
+}
+
+export interface LoginResponse {
+  access_token: string
+  refresh_token: string
+  user: LoginUser
+}
+
 export interface MeResponse {
   id: string
   org_id: string

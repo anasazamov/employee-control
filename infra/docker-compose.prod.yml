@@ -63,6 +63,9 @@ services:
       # staging/test serverda DEBUG=true (OTP dev-kodi qaytadi, SMS'siz test uchun);
       # prod'da .env'da DEBUG qo'yilmaydi → false
       EC_DEBUG: ${DEBUG:-false}
+      # Web admin brauzeri uchun CORS (vergul bilan ajratilgan origin ro'yxati).
+      # Web dev-server localhost:5173 + deploy qilingan admin domeni/porti.
+      EC_CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       EC_DATABASE_URL: postgresql+asyncpg://app_user:app_password@db:5432/employee_control
       EC_MIGRATIONS_DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD}@db:5432/employee_control
       EC_REDIS_URL: redis://redis:6379/0

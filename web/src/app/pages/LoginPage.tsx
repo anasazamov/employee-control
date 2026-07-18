@@ -33,7 +33,7 @@ function getDeviceFingerprint(): string {
   return fp
 }
 
-type Mode = 'token' | 'otp'
+type Mode = 'password' | 'token' | 'otp'
 
 export function LoginPage() {
   const { t } = useTranslation()
@@ -44,7 +44,12 @@ export function LoginPage() {
   const patchUser = useAuthStore((s) => s.patchUser)
   const logout = useAuthStore((s) => s.logout)
 
-  const [mode, setMode] = useState<Mode>('token')
+  const [mode, setMode] = useState<Mode>('password')
+
+  // --- username/parol oqimi (asosiy — rahbar/HR/admin shu bilan kiradi) ---
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [pwLoading, setPwLoading] = useState(false)
 
   // --- token oqimi ---
   const [tokenValue, setTokenValue] = useState('')
@@ -59,6 +64,38 @@ export function LoginPage() {
   const [otpBusy, setOtpBusy] = useState(false)
 
   if (accessToken) return <Navigate to="/" replace />
+
+  const submitPassword = async () => {
+    const u = username.trim()
+    if (!u) {
+      message.error(t('login.usernameRequired'))
+      return
+    }
+    if (!password) {
+      message.error(t('login.passwordRequired'))
+      return
+    }
+    setPwLoading(true)
+    try {
+      const res = await authApi.login({ username: u, password })
+      setSession({
+        accessToken: res.access_token,
+        refreshToken: res.refresh_token,
+        user: {
+          id: res.user.id,
+          role: res.user.role,
+          org_id: res.user.org_id,
+          full_name: res.user.full_name,
+        },
+      })
+      message.success(t('login.success'))
+      navigate('/', { replace: true })
+    } catch (e) {
+      message.error(getApiErrorMessage(e, t('login.loginFailed')))
+    } finally {
+      setPwLoading(false)
+    }
+  }
 
   const submitToken = async () => {
     const token = tokenValue.trim()
@@ -177,13 +214,42 @@ export function LoginPage() {
           value={mode}
           onChange={setMode}
           options={[
+            { value: 'password', label: t('login.modePassword') },
             { value: 'token', label: t('login.modeToken') },
             { value: 'otp', label: t('login.modeOtp') },
           ]}
           style={{ marginBottom: 16 }}
         />
 
-        {mode === 'token' ? (
+        {mode === 'password' ? (
+          <Form
+            layout="vertical"
+            onFinish={submitPassword}
+            disabled={pwLoading}
+          >
+            <Form.Item label={t('login.username')} style={{ marginBottom: 12 }}>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={t('login.username')}
+                autoComplete="username"
+                autoFocus
+              />
+            </Form.Item>
+            <Form.Item label={t('login.password')} style={{ marginBottom: 16 }}>
+              <Input.Password
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t('login.password')}
+                autoComplete="current-password"
+                onPressEnter={submitPassword}
+              />
+            </Form.Item>
+            <Button type="primary" block htmlType="submit" loading={pwLoading}>
+              {t('login.submit')}
+            </Button>
+          </Form>
+        ) : mode === 'token' ? (
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <Alert type="info" showIcon message={t('login.tokenHint')} />
             <div>

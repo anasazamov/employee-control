@@ -38,8 +38,14 @@ export const ru: typeof uz = {
   },
   login: {
     title: 'Вход',
+    modePassword: 'Логин/пароль',
     modeToken: 'Токен',
     modeOtp: 'Приглашение + OTP',
+    username: 'Имя пользователя',
+    password: 'Пароль',
+    usernameRequired: 'Введите имя пользователя',
+    passwordRequired: 'Введите пароль',
+    loginFailed: 'Неверный логин или пароль',
     tokenHint:
       'Вставьте access token из provision-tenant CLI или ответа activate.',
     accessToken: 'Access token',
