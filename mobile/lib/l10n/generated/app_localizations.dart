@@ -314,6 +314,12 @@ abstract class AppLocalizations {
   /// **'Tabassum qiling'**
   String get faceChallengeSmile;
 
+  /// No description provided for @faceLookStraight.
+  ///
+  /// In uz, this message translates to:
+  /// **'Endi to\'g\'riga qarang'**
+  String get faceLookStraight;
+
   /// No description provided for @faceCapturing.
   ///
   /// In uz, this message translates to:

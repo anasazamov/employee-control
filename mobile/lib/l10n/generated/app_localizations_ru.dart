@@ -118,6 +118,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get faceChallengeSmile => 'Улыбнитесь';
 
   @override
+  String get faceLookStraight => 'Теперь смотрите прямо';
+
+  @override
   String get faceCapturing => 'Съёмка...';
 
   @override

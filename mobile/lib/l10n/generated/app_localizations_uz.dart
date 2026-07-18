@@ -118,6 +118,9 @@ class AppLocalizationsUz extends AppLocalizations {
   String get faceChallengeSmile => 'Tabassum qiling';
 
   @override
+  String get faceLookStraight => 'Endi to\'g\'riga qarang';
+
+  @override
   String get faceCapturing => 'Suratga olinmoqda...';
 
   @override

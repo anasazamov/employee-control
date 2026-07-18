@@ -58,7 +58,7 @@ class FaceLivenessView extends StatefulWidget {
   State<FaceLivenessView> createState() => _FaceLivenessViewState();
 }
 
-enum _Phase { init, permissionDenied, gate, challenge, capturing, done, error }
+enum _Phase { init, permissionDenied, gate, challenge, align, capturing, done, error }
 
 // Old (selfie) kamera oqimida ML Kit InputImage'ga aylantirish uchun qurilma
 // orientatsiyasi -> gradus jadvali (ML Kit rasmiy namunasidan).
@@ -77,6 +77,11 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
   bool _busy = false; // kadr qayta ishlanmoqda (throttle)
   bool _streaming = false;
   bool _disposed = false;
+  bool _loggedFormat = false; // kamera-format bir marta loglanadi (diagnostika)
+
+  // Challenge'lardan so'ng suratga olishdan oldin yuz shu darajadan kam
+  // burilgan (frontal) bo'lishi kerak — server 1:1 uchun to'g'ri selfie.
+  static const double _frontalYawDeg = 12;
 
   late List<LivenessChallenge> _sequence;
   int _index = 0;
@@ -115,10 +120,13 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
         front,
         ResolutionPreset.medium,
         enableAudio: false,
-        // Android: yuv420 (3 plane) so'raymiz va o'zimiz tekis NV21 quramiz —
-        // camerax'ning nv21'i padding'li bo'lib ML Kit'ni NPE qildiradi (past).
+        // Android: NV21 so'raymiz. MUHIM — pubspec'da `camera_android` (Camera2)
+        // to'g'ridan-to'g'ri qo'shilgan, shuning uchun endorsed `camera_android_camerax`
+        // (CameraX) O'RNIGA ishlatiladi. CameraX YUV_420_888 berib ML Kit'ning
+        // InputImage konvertoriga getClass NPE qildirar edi (google_ml_kit issue #626);
+        // Camera2 esa ML Kit kutgan haqiqiy NV21 beradi.
         imageFormatGroup: Platform.isAndroid
-            ? ImageFormatGroup.yuv420
+            ? ImageFormatGroup.nv21
             : ImageFormatGroup.bgra8888,
       );
       await controller.initialize();
@@ -150,7 +158,11 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
     final detector = _detector;
     final controller = _controller;
     if (detector == null || controller == null) return;
-    if (_phase != _Phase.gate && _phase != _Phase.challenge) return;
+    if (_phase != _Phase.gate &&
+        _phase != _Phase.challenge &&
+        _phase != _Phase.align) {
+      return;
+    }
 
     final inputImage = _toInputImage(image, controller);
     if (inputImage == null) return;
@@ -186,8 +198,19 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
             _tracker = ChallengeTracker(_sequence[_index]);
             _set(() {}); // keyingi challenge ko'rsatiladi
           } else {
-            _capture();
+            // Barcha challenge o'tdi — darhol emas, yuz TO'G'RIGA qaytгунча
+            // kutamiz (align fazasi).
+            _set(() => _phase = _Phase.align);
           }
+        }
+      case _Phase.align:
+        // Oxirgi challenge "boshni burish" bo'lishi mumkin — burilgan yuz
+        // server 1:1 tekshiruvi uchun yaroqsiz. Shuning uchun yuz frontal
+        // (|yaw| kichik), sifat-darvozadan o'tgan va ko'zlar ochiq bo'lganda
+        // suratga olamiz — natijada aniq, to'g'riga qaragan selfie.
+        if (FaceQuality.passes(signals) &&
+            (signals.headYaw?.abs() ?? 999) <= _frontalYawDeg) {
+          _capture();
         }
       default:
         break;
@@ -247,11 +270,21 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
       );
     }
 
-    // Android: yuv420 (3 plane) -> tekis-joylashgan NV21 (stride-padding olib
-    // tashlanadi). google_mlkit_commons bytesPerRow'ni O'QIMAYDI va tekis NV21
-    // (uzunlik w*h*3/2, stride==width) kutadi — padding'li bufer NPE beradi.
-    if (image.planes.length < 3) return null;
-    final nv21 = _yuv420ToNv21(image);
+    // Android: qurilma NV21'ni stride-padding bilan beradi (MtkCam: stride 768,
+    // width 720). google_mlkit_commons bytesPerRow'ni O'QIMAYDI va TEKIS NV21
+    // (uzunlik w*h*3/2, stride==width) kutadi — shuning uchun o'zimiz tekis
+    // NV21 quramiz. Yetkazish 1/2/3 plane bo'lishi mumkin — hammasi qoplanadi.
+    if (!_loggedFormat) {
+      _loggedFormat = true;
+      final info = image.planes
+          .map((p) => 'bpr=${p.bytesPerRow},bpp=${p.bytesPerPixel},len=${p.bytes.length}')
+          .join(' | ');
+      // ignore: avoid_print
+      print('CAMFMT raw=${image.format.raw} planes=${image.planes.length} '
+          '${image.width}x${image.height} $info');
+    }
+    final nv21 = _buildNv21(image);
+    if (nv21 == null) return null;
     return InputImage.fromBytes(
       bytes: nv21,
       metadata: InputImageMetadata(
@@ -263,33 +296,67 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
     );
   }
 
-  /// YUV_420_888 (3 plane, stride-padding bo'lishi mumkin) -> tekis NV21 bayt-bufer.
-  /// NV21 = to'liq Y tekisligi, so'ng V,U,V,U... interleaved (chorak o'lchamli).
-  Uint8List _yuv420ToNv21(CameraImage image) {
+  /// Kamera kadridan TEKIS-joylashgan NV21 bayt-bufer (stride-padding olib
+  /// tashlanadi). 3 plane = YUV_420_888 planar; 2 plane = NV21/NV12 semi-planar;
+  /// 1 plane = allaqachon NV21 (Y+VU ketma-ket, stride bilan).
+  Uint8List? _buildNv21(CameraImage image) {
     final int width = image.width;
     final int height = image.height;
-    final yP = image.planes[0];
-    final uP = image.planes[1];
-    final vP = image.planes[2];
+    if (width <= 0 || height <= 0 || image.planes.isEmpty) return null;
 
     final out = Uint8List(width * height + (width * height ~/ 2));
     int dst = 0;
 
-    // Y: har qatorni width bayt qilib ko'chiramiz (qatordagi padding tashlanadi).
+    // Y tekisligi (har doim plane[0]) — qatordagi padding tashlanadi.
+    final yP = image.planes[0];
     final int yStride = yP.bytesPerRow;
     for (int r = 0; r < height; r++) {
-      out.setRange(dst, dst + width, yP.bytes, r * yStride);
+      final int src = r * yStride;
+      if (src + width > yP.bytes.length) return null;
+      out.setRange(dst, dst + width, yP.bytes, src);
       dst += width;
     }
 
-    // VU interleaved (NV21 tartibi: V, U).
-    final int uvStride = uP.bytesPerRow;
-    final int uvPix = uP.bytesPerPixel ?? 1;
-    for (int r = 0; r < height ~/ 2; r++) {
-      for (int c = 0; c < width ~/ 2; c++) {
-        final int i = r * uvStride + c * uvPix;
-        out[dst++] = vP.bytes[i]; // V
-        out[dst++] = uP.bytes[i]; // U
+    final int chromaRows = height ~/ 2;
+    if (image.planes.length >= 3) {
+      // Planar YUV_420_888: V,U interleave (NV21 tartibi).
+      final uP = image.planes[1];
+      final vP = image.planes[2];
+      final int uvStride = uP.bytesPerRow;
+      final int uvPix = uP.bytesPerPixel ?? 1;
+      for (int r = 0; r < chromaRows; r++) {
+        for (int c = 0; c < width ~/ 2; c++) {
+          final int i = r * uvStride + c * uvPix;
+          if (i >= vP.bytes.length || i >= uP.bytes.length) return null;
+          out[dst++] = vP.bytes[i];
+          out[dst++] = uP.bytes[i];
+        }
+      }
+    } else if (image.planes.length == 2) {
+      // Semi-planar (NV21): plane[1] allaqachon VU interleaved — qatorni ko'chiramiz.
+      final vuP = image.planes[1];
+      final int vuStride = vuP.bytesPerRow;
+      for (int r = 0; r < chromaRows; r++) {
+        final int src = r * vuStride;
+        if (src + width > vuP.bytes.length) {
+          // Oxirgi qator to'liq bo'lmasa — bor qismini ko'chiramiz.
+          final int avail = vuP.bytes.length - src;
+          if (avail <= 0) break;
+          out.setRange(dst, dst + avail, vuP.bytes, src);
+          dst += avail;
+          break;
+        }
+        out.setRange(dst, dst + width, vuP.bytes, src);
+        dst += width;
+      }
+    } else {
+      // Bitta plane: VU Y'dan keyin (stride bilan) shu buferda.
+      final int vuStart = height * yStride;
+      for (int r = 0; r < chromaRows; r++) {
+        final int src = vuStart + r * yStride;
+        if (src + width > yP.bytes.length) break;
+        out.setRange(dst, dst + width, yP.bytes, src);
+        dst += width;
       }
     }
     return out;
@@ -393,6 +460,8 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
         hint = l10n.faceHintPosition;
       case _Phase.challenge:
         hint = _instruction(l10n, _sequence[_index]);
+      case _Phase.align:
+        hint = l10n.faceLookStraight;
       case _Phase.capturing:
         hint = l10n.faceCapturing;
       case _Phase.done:
@@ -472,6 +541,7 @@ class _FaceLivenessViewState extends State<FaceLivenessView> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: i < _index ||
+                                  _phase == _Phase.align ||
                                   _phase == _Phase.capturing ||
                                   _phase == _Phase.done
                               ? Colors.greenAccent

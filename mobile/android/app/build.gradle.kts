@@ -33,6 +33,16 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+
+            // R8 full-mode optimizatsiyasi ML Kit vision telemetriya-loggerini
+            // (zzmj konstruktori) buzib, InputImage.from*() har chaqirilganda
+            // NullPointerException ("getClass() on null") beryapti — natijada
+            // yuz-detektsiya HAR qurilmada ishlamaydi (Firebase/ML Kit #777 kabi
+            // R8 xatolari). Shu tufayli release'da minifikatsiya/shrink o'chiriladi:
+            // Flutter ilovasida hajm asosan Dart AOT'dan keladi, Java-shrink kritik
+            // emas; to'g'rilik muhimroq.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
